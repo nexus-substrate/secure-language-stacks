@@ -1,3 +1,12 @@
+---
+name: secure-php
+description: |
+  Security scanning guidance for PHP projects.
+  Triggers on "secure php", "php security", "scan php".
+allowed-tools: Read, Grep, Glob, Bash
+context: fork
+---
+
 # Secure PHP Development
 
 **Skill:** secure-php

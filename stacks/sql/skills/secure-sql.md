@@ -1,3 +1,12 @@
+---
+name: secure-sql
+description: |
+  Security scanning guidance for SQL databases.
+  Triggers on "secure sql", "sql security", "scan sql".
+allowed-tools: Read, Grep, Glob, Bash
+context: fork
+---
+
 # Secure SQL Development Skill
 
 **Skill ID**: `secure-sql`

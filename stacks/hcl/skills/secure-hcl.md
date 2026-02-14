@@ -1,3 +1,12 @@
+---
+name: secure-hcl
+description: |
+  Security scanning guidance for HCL/Terraform infrastructure.
+  Triggers on "secure hcl", "hcl security", "scan terraform".
+allowed-tools: Read, Grep, Glob, Bash
+context: fork
+---
+
 # Secure HCL/Terraform Development - nexus-agents Skill
 
 **Skill ID:** `secure-hcl`

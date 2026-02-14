@@ -8,9 +8,9 @@ resources:
   - name: source-code
     type: git
     source:
-      uri: ((git.uri))
-      branch: ((git.branch))
-      private_key: ((git.private_key))
+      uri: ((git-uri))
+      branch: ((git-branch))
+      private_key: ((git-private-key))
 
   - name: semgrep-image
     type: docker-image

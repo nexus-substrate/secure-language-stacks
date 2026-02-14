@@ -1,3 +1,12 @@
+---
+name: secure-shell
+description: |
+  Security scanning guidance for Shell/Bash scripts.
+  Triggers on "secure shell", "shell security", "scan shell".
+allowed-tools: Read, Grep, Glob, Bash
+context: fork
+---
+
 # Secure Shell Development - nexus-agents Skill
 
 **Skill ID:** `secure-shell`

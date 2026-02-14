@@ -13,24 +13,24 @@ resources:
     type: git
     icon: github
     source:
-      uri: ((git.uri))
-      branch: ((git.branch))
-      private_key: ((git.private_key))
+      uri: ((git-uri))
+      branch: ((git-branch))
+      private_key: ((git-private-key))
 
   - name: security-scan-image
     type: registry-image
     icon: docker
     source:
-      repository: ((docker.registry))/security-scanner
+      repository: ((docker-registry))/security-scanner
       tag: latest
-      username: ((docker.username))
-      password: ((docker.password))
+      username: ((docker-username))
+      password: ((docker-password))
 
   - name: slack-alert
     type: slack-notification
     icon: slack
     source:
-      url: ((slack.webhook_url))
+      url: ((slack-webhook-url))
 
 jobs:
   # Job 1: SAST with Semgrep
@@ -76,7 +76,7 @@ jobs:
           put: slack-alert
           params:
             text: "Semgrep scan failed - critical security issues detected"
-            channel: ((slack.channel))
+            channel: ((slack-channel))
 
   # Job 2: SpotBugs Security Analysis
   - name: spotbugs-scan
@@ -119,7 +119,7 @@ jobs:
           put: slack-alert
           params:
             text: "SpotBugs scan detected security vulnerabilities"
-            channel: ((slack.channel))
+            channel: ((slack-channel))
 
   # Job 3: Dependency Scanning with Trivy
   - name: trivy-scan
@@ -170,7 +170,7 @@ jobs:
           put: slack-alert
           params:
             text: "Trivy scan found critical vulnerabilities in dependencies"
-            channel: ((slack.channel))
+            channel: ((slack-channel))
 
   # Job 4: OWASP Dependency-Check
   - name: dependency-check
@@ -191,7 +191,7 @@ jobs:
           outputs:
             - name: dependency-check-results
           params:
-            NVD_API_KEY: ((nvd.api_key))
+            NVD_API_KEY: ((nvd-api-key))
           run:
             path: /bin/sh
             args:
@@ -211,7 +211,7 @@ jobs:
           put: slack-alert
           params:
             text: "OWASP Dependency-Check found high-severity CVEs"
-            channel: ((slack.channel))
+            channel: ((slack-channel))
 
   # Job 5: Secret Scanning with GitLeaks
   - name: gitleaks-scan
@@ -247,7 +247,7 @@ jobs:
           put: slack-alert
           params:
             text: "GitLeaks detected secrets in source code"
-            channel: ((slack.channel))
+            channel: ((slack-channel))
 
   # Job 6: Aggregate Results
   - name: aggregate-results
@@ -311,4 +311,4 @@ jobs:
           put: slack-alert
           params:
             text: "All security scans completed successfully"
-            channel: ((slack.channel))
+            channel: ((slack-channel))

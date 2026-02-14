@@ -1,3 +1,12 @@
+---
+name: secure-yaml
+description: |
+  Security scanning guidance for YAML/Kubernetes manifests.
+  Triggers on "secure yaml", "yaml security", "scan kubernetes".
+allowed-tools: Read, Grep, Glob, Bash
+context: fork
+---
+
 # Secure YAML Development - nexus-agents Skill
 
 **Skill ID:** `secure-yaml`

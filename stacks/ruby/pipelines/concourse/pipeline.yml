@@ -6,19 +6,19 @@ resources:
     type: git
     icon: github
     source:
-      uri: ((git.uri))
-      branch: ((git.branch))
-      private_key: ((git.private_key))
+      uri: ((git-uri))
+      branch: ((git-branch))
+      private_key: ((git-private-key))
 
   - name: security-results
     type: s3
     icon: database
     source:
-      bucket: ((s3.bucket))
-      region_name: ((s3.region))
-      access_key_id: ((s3.access_key))
-      secret_access_key: ((s3.secret_key))
-      versioned_file: security-reports/ruby-((git.branch))-latest.tar.gz
+      bucket: ((s3-bucket))
+      region_name: ((s3-region))
+      access_key_id: ((s3-access-key))
+      secret_access_key: ((s3-secret-key))
+      versioned_file: security-reports/ruby-((git-branch))-latest.tar.gz
 
 jobs:
   # Job 1: SAST with Semgrep
@@ -305,7 +305,7 @@ jobs:
                 {
                   "timestamp": "$(date -Iseconds)",
                   "pipeline": "ruby-security-scan",
-                  "branch": "((git.branch))",
+                  "branch": "((git-branch))",
                   "commit": "$(cd source-code && git rev-parse HEAD)",
                   "scans": {
                     "semgrep": "completed",

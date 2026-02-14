@@ -19,7 +19,7 @@ resources:
     icon: source-pull
     source:
       repository: ((github-repository))
-      access_token: ((github-access-token))
+      access_token: ((github-token))
 
 jobs:
   - name: security-scan

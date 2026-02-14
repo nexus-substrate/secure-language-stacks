@@ -3,9 +3,9 @@ resources:
     type: git
     icon: github
     source:
-      uri: ((git.uri))
-      branch: ((git.branch))
-      private_key: ((git.private_key))
+      uri: ((git-uri))
+      branch: ((git-branch))
+      private_key: ((git-private-key))
 
   - name: vulnerability-db
     type: time

@@ -1,3 +1,12 @@
+---
+name: secure-swift
+description: |
+  Security scanning guidance for Swift/iOS projects.
+  Triggers on "secure swift", "swift security", "scan swift".
+allowed-tools: Read, Grep, Glob, Bash
+context: fork
+---
+
 # Secure Swift Development Skill
 
 **Skill ID**: `secure-swift`
