@@ -1,0 +1,130 @@
+rules:
+  - id: swift-hardcoded-secret
+    pattern-either:
+      - pattern: let $VAR = "$SECRET"
+      - pattern: var $VAR = "$SECRET"
+    metavariable-pattern:
+      metavariable: $SECRET
+      patterns:
+        - pattern-regex: '(password|secret|api[_-]?key|token|credential)'
+    message: Hardcoded secret detected in Swift code
+    languages: [swift]
+    severity: ERROR
+    metadata:
+      cwe: CWE-798
+      owasp: A02:2021-Cryptographic Failures
+
+  - id: swift-insecure-keychain
+    pattern-either:
+      - pattern: SecItemAdd($DICT, ...)
+      - pattern: SecItemUpdate($QUERY, ...)
+    metavariable-pattern:
+      metavariable: $DICT
+      patterns:
+        - pattern-not-regex: '.*kSecAttrAccessible.*'
+    message: Keychain item without kSecAttrAccessible protection class
+    languages: [swift]
+    severity: WARNING
+    metadata:
+      cwe: CWE-311
+      owasp: A02:2021-Cryptographic Failures
+
+  - id: swift-nslog-sensitive-data
+    pattern-either:
+      - pattern: NSLog("...$VAR...")
+      - pattern: print("...$VAR...")
+    metavariable-pattern:
+      metavariable: $VAR
+      patterns:
+        - pattern-regex: '(password|token|secret|credential|ssn|credit)'
+    message: Logging sensitive data with NSLog or print
+    languages: [swift]
+    severity: ERROR
+    metadata:
+      cwe: CWE-532
+      owasp: A09:2021-Security Logging and Monitoring Failures
+
+  - id: swift-ats-bypass
+    pattern-either:
+      - pattern: |
+          NSAppTransportSecurity {
+            NSAllowsArbitraryLoads = true
+          }
+      - pattern: NSAllowsArbitraryLoads = true
+    message: App Transport Security (ATS) disabled, allows insecure HTTP
+    languages: [swift]
+    severity: ERROR
+    metadata:
+      cwe: CWE-319
+      owasp: A02:2021-Cryptographic Failures
+
+  - id: swift-unvalidated-url-scheme
+    pattern-either:
+      - pattern: application.open($URL, ...)
+      - pattern: UIApplication.shared.open($URL, ...)
+    metavariable-pattern:
+      metavariable: $URL
+      patterns:
+        - pattern-not: URL(string: $LITERAL)!
+    message: Opening URL without scheme validation (deep link injection risk)
+    languages: [swift]
+    severity: WARNING
+    metadata:
+      cwe: CWE-939
+      owasp: A03:2021-Injection
+
+  - id: swift-weak-crypto
+    pattern-either:
+      - pattern: MD5(...)
+      - pattern: SHA1(...)
+      - pattern: CC_MD5(...)
+      - pattern: CC_SHA1(...)
+    message: Weak cryptographic hash function used (MD5/SHA1)
+    languages: [swift]
+    severity: ERROR
+    metadata:
+      cwe: CWE-327
+      owasp: A02:2021-Cryptographic Failures
+
+  - id: swift-insecure-random
+    pattern-either:
+      - pattern: arc4random()
+      - pattern: arc4random_uniform($N)
+    message: Use SecRandomCopyBytes for cryptographic randomness
+    languages: [swift]
+    severity: WARNING
+    metadata:
+      cwe: CWE-338
+      owasp: A02:2021-Cryptographic Failures
+
+  - id: swift-sql-injection
+    pattern-either:
+      - pattern: executeQuery("... \($VAR) ...")
+      - pattern: db.execute("... \($VAR) ...")
+    message: Potential SQL injection via string interpolation
+    languages: [swift]
+    severity: ERROR
+    metadata:
+      cwe: CWE-89
+      owasp: A03:2021-Injection
+
+  - id: swift-file-permission-insecure
+    pattern-either:
+      - pattern: FileManager.default.createFile(..., attributes: [.posixPermissions: 0o777])
+      - pattern: FileManager.default.setAttributes([.posixPermissions: 0o777], ...)
+    message: Insecure file permissions (world-readable/writable)
+    languages: [swift]
+    severity: ERROR
+    metadata:
+      cwe: CWE-732
+      owasp: A01:2021-Broken Access Control
+
+  - id: swift-webview-javascript-enabled
+    pattern: |
+      $WEBVIEW.configuration.preferences.javaScriptEnabled = true
+    message: JavaScript enabled in WKWebView without sandboxing
+    languages: [swift]
+    severity: WARNING
+    metadata:
+      cwe: CWE-79
+      owasp: A03:2021-Injection

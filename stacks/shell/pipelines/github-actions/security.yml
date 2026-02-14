@@ -1,0 +1,159 @@
+name: Shell Security Scanning
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - '**.sh'
+      - '**.bash'
+      - 'stacks/shell/**'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - '**.sh'
+      - '**.bash'
+      - 'stacks/shell/**'
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  shellcheck:
+    name: ShellCheck Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: '.'
+          format: gcc
+          severity: warning
+        env:
+          SHELLCHECK_OPTS: --config-file=stacks/shell/configs/.shellcheckrc
+
+      - name: Upload ShellCheck results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shellcheck-results
+          path: shellcheck-results.txt
+          retention-days: 30
+
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: |
+          semgrep --config=stacks/shell/configs/.semgrep.yml \
+            --config=p/bash \
+            --severity=ERROR \
+            --severity=WARNING \
+            --sarif \
+            --output=semgrep-results.sarif \
+            .
+
+      - name: Upload Semgrep results to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep-results.sarif
+          category: semgrep-shell
+
+      - name: Check for critical findings
+        run: |
+          semgrep --config=stacks/shell/configs/.semgrep.yml \
+            --config=p/bash \
+            --severity=ERROR \
+            --json \
+            --output=semgrep-results.json \
+            .
+
+          errors=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' semgrep-results.json)
+          if [ "$errors" -gt 0 ]; then
+            echo "::error::Found $errors critical security issues"
+            jq '.results[] | select(.extra.severity == "ERROR")' semgrep-results.json
+            exit 1
+          fi
+
+  gitleaks:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: shared/configs/.gitleaks.toml
+
+  security-gate:
+    name: Security Gate
+    runs-on: ubuntu-latest
+    needs: [shellcheck, semgrep, gitleaks]
+    if: always()
+    steps:
+      - name: Check job results
+        run: |
+          if [ "${{ needs.shellcheck.result }}" != "success" ] || \
+             [ "${{ needs.semgrep.result }}" != "success" ] || \
+             [ "${{ needs.gitleaks.result }}" != "success" ]; then
+            echo "::error::Security checks failed"
+            exit 1
+          fi
+          echo "::notice::All security checks passed"
+
+  comment-pr:
+    name: Comment on PR
+    runs-on: ubuntu-latest
+    needs: [shellcheck, semgrep, gitleaks]
+    if: github.event_name == 'pull_request' && always()
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Create PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = {
+              shellcheck: '${{ needs.shellcheck.result }}',
+              semgrep: '${{ needs.semgrep.result }}',
+              gitleaks: '${{ needs.gitleaks.result }}'
+            };
+
+            const passed = Object.values(status).every(r => r === 'success');
+            const icon = passed ? '✅' : '❌';
+
+            const body = `## ${icon} Shell Security Scan Results
+
+            | Check | Status |
+            |-------|--------|
+            | ShellCheck | ${status.shellcheck === 'success' ? '✅' : '❌'} |
+            | Semgrep SAST | ${status.semgrep === 'success' ? '✅' : '❌'} |
+            | Gitleaks | ${status.gitleaks === 'success' ? '✅' : '❌'} |
+
+            ${passed ? 'All security checks passed!' : 'Some security checks failed. Please review the workflow logs.'}`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

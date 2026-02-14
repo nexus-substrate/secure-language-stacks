@@ -1,0 +1,142 @@
+rules:
+  # SQL Injection Detection
+  - id: python-sql-injection-string-concat
+    pattern-either:
+      - pattern: cursor.execute($SQL + $INPUT)
+      - pattern: cursor.execute(f"... {$INPUT} ...")
+      - pattern: cursor.execute("..." % $INPUT)
+      - pattern: cursor.execute("...".format($INPUT))
+    message: Potential SQL injection via string concatenation. Use parameterized queries.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: CWE-89
+      owasp: A03:2021
+      confidence: HIGH
+
+  # Command Injection Detection
+  - id: python-command-injection
+    pattern-either:
+      - pattern: os.system($INPUT)
+      - pattern: subprocess.call($INPUT, shell=True)
+      - pattern: subprocess.Popen($INPUT, shell=True)
+      - pattern: subprocess.run($INPUT, shell=True)
+      - pattern: os.popen($INPUT)
+    message: Command injection risk. Avoid shell=True and user-controlled input.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: CWE-78
+      owasp: A03:2021
+      confidence: HIGH
+
+  # Pickle Deserialization
+  - id: python-pickle-deserialization
+    pattern-either:
+      - pattern: pickle.loads($INPUT)
+      - pattern: pickle.load($FILE)
+      - pattern: cPickle.loads($INPUT)
+      - pattern: dill.loads($INPUT)
+    message: Insecure deserialization with pickle. Never deserialize untrusted data.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: CWE-502
+      owasp: A08:2021
+      confidence: MEDIUM
+
+  # YAML Unsafe Load
+  - id: python-yaml-unsafe-load
+    pattern-either:
+      - pattern: yaml.load($INPUT)
+      - pattern: yaml.unsafe_load($INPUT)
+    message: Unsafe YAML deserialization. Use yaml.safe_load() instead.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: CWE-502
+      owasp: A08:2021
+      confidence: HIGH
+
+  # SSRF Detection
+  - id: python-ssrf-requests
+    pattern-either:
+      - pattern: requests.get($URL)
+      - pattern: requests.post($URL)
+      - pattern: urllib.request.urlopen($URL)
+      - pattern: httpx.get($URL)
+    message: Potential SSRF. Validate and sanitize URLs from user input.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: CWE-918
+      owasp: A10:2021
+      confidence: MEDIUM
+
+  # Jinja2 SSTI
+  - id: python-jinja2-ssti
+    pattern-either:
+      - pattern: jinja2.Template($TEMPLATE).render(...)
+      - pattern: Environment(...).from_string($TEMPLATE)
+    message: Potential Server-Side Template Injection. Never use user input in templates.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: CWE-94
+      owasp: A03:2021
+      confidence: MEDIUM
+
+  # Insecure Cryptography
+  - id: python-insecure-hash
+    pattern-either:
+      - pattern: hashlib.md5(...)
+      - pattern: hashlib.sha1(...)
+    message: Weak cryptographic hash function. Use SHA-256 or stronger.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: CWE-327
+      owasp: A02:2021
+      confidence: HIGH
+
+  # Hardcoded Secrets
+  - id: python-hardcoded-password
+    pattern-either:
+      - pattern: password = "..."
+      - pattern: api_key = "..."
+      - pattern: secret = "..."
+      - pattern: token = "..."
+    message: Potential hardcoded secret. Use environment variables or secret management.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: CWE-798
+      owasp: A07:2021
+      confidence: MEDIUM
+
+  # Path Traversal
+  - id: python-path-traversal
+    pattern-either:
+      - pattern: open($PATH, ...)
+      - pattern: os.path.join($BASE, $INPUT)
+    message: Potential path traversal. Validate and sanitize file paths.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: CWE-22
+      owasp: A01:2021
+      confidence: MEDIUM
+
+  # Insecure Random
+  - id: python-insecure-random
+    pattern-either:
+      - pattern: random.random()
+      - pattern: random.randint(...)
+      - pattern: random.choice(...)
+    message: Insecure random number generation. Use secrets module for cryptographic purposes.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: CWE-338
+      owasp: A02:2021
+      confidence: HIGH

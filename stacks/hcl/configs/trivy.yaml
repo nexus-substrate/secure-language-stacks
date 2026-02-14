@@ -1,0 +1,118 @@
+# Trivy configuration for HCL/Terraform scanning
+# https://aquasecurity.github.io/trivy/
+
+# Scan types to enable
+scan:
+  - config      # IaC scanning
+  - secret      # Secret detection
+
+# Security checks to enable
+security-checks:
+  - config
+  - secret
+
+# Severity levels to report
+severity:
+  - CRITICAL
+  - HIGH
+  - MEDIUM
+  - LOW
+
+# Vulnerability database
+db:
+  # Skip DB update for faster scans (update separately)
+  skip-update: false
+
+# IaC scanning configuration
+iac:
+  # File patterns to scan
+  file-patterns:
+    - "*.tf"
+    - "*.tfvars"
+    - "*.hcl"
+
+  # Terraform-specific checks
+  terraform:
+    # Checks to enable
+    checks:
+      - AVD-AWS-*      # AWS checks
+      - AVD-AZU-*      # Azure checks
+      - AVD-GCP-*      # GCP checks
+      - AVD-DIG-*      # DigitalOcean checks
+
+  # Policy namespaces to use
+  policy:
+    - builtin.terraform.aws
+    - builtin.terraform.azure
+    - builtin.terraform.gcp
+
+# Secret scanning configuration
+secret:
+  # Secret scanning rules
+  config: .trivy-secret.yaml  # Custom secret patterns
+
+# Output configuration
+format: table  # table, json, sarif, cyclonedx, spdx, github
+
+# Template for custom output format
+# template: "@/path/to/template.tpl"
+
+# Report format for CI/CD integration
+output: trivy-results.json
+
+# Exit code configuration
+exit-code: 1  # Non-zero exit code if vulnerabilities found
+
+# Ignore unfixed vulnerabilities
+ignore-unfixed: false
+
+# Paths to exclude from scan
+skip-dirs:
+  - .terraform
+  - .terragrunt-cache
+  - node_modules
+  - vendor
+
+skip-files:
+  - "**/*_test.tf"
+  - "examples/**"
+
+# Custom policies directory
+policy-bundle-repository: "" # Optional: custom policy repository
+
+# Compliance standards
+compliance:
+  - aws-cis-1.2
+  - aws-cis-1.4
+  - nist-sp-800-53
+
+# Misconfiguration scanning thresholds
+misconfig:
+  # Severity threshold
+  severity: MEDIUM
+
+  # Success exit code even if misconfigurations found
+  exit-code: 1
+
+  # Include passed checks in output
+  include-non-failures: false
+
+# Timeout for scan operations
+timeout: 5m
+
+# Cache directory
+cache-dir: /tmp/trivy-cache
+
+# Custom checks directory
+config-check: custom-checks/
+
+# Ignore policies by ID
+skip-policy-update: false
+
+# AWS-specific configuration
+cloud:
+  aws:
+    # AWS region for API calls
+    region: us-east-1
+    # Endpoint URL for AWS services
+    endpoint: ""

@@ -1,0 +1,25 @@
+format: json
+severity: CRITICAL,HIGH,MEDIUM
+exit-code: 1
+vuln-type:
+  - library
+scanners:
+  - vuln
+ignore-unfixed: false
+timeout: 10m
+scan:
+  - Cargo.lock
+  - Cargo.toml
+skip-files: []
+skip-dirs:
+  - target/
+  - .git/
+  - node_modules/
+db:
+  repository: ghcr.io/aquasecurity/trivy-db
+  skip-update: false
+vulnerability:
+  ignore-statuses:
+    - end_of_life
+  cvss:
+    all: true

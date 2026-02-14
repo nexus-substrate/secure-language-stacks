@@ -1,0 +1,32 @@
+---
+platform: linux
+
+image_resource:
+  type: registry-image
+  source:
+    repository: aquasec/trivy
+    tag: latest
+
+inputs:
+  - name: source
+
+params:
+  SCAN_TYPE: fs
+  TRIVY_CONFIG: ""
+  SEVERITY: HIGH,CRITICAL
+
+run:
+  path: sh
+  args:
+    - -ec
+    - |
+      cd source
+      ARGS="--severity $SEVERITY --format sarif --output trivy-results.sarif"
+      if [ -n "$TRIVY_CONFIG" ] && [ -f "$TRIVY_CONFIG" ]; then
+        ARGS="$ARGS --config $TRIVY_CONFIG"
+      fi
+      trivy $SCAN_TYPE $ARGS .
+      echo "Trivy scan complete"
+
+outputs:
+  - name: source

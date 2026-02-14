@@ -1,0 +1,39 @@
+{
+  "name": "secure-language-stacks",
+  "version": "1.0.0",
+  "description": "Security toolchain reference for the top 15 GitHub languages — scanner configs, CI templates, and nexus-agents skills",
+  "type": "module",
+  "scripts": {
+    "validate": "tsx scripts/validate-stacks.ts",
+    "matrix": "tsx scripts/generate-matrix.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "prettier --check '**/*.{ts,yml,yaml,json,md}'"
+  },
+  "author": "williamzujkowski",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/williamzujkowski/secure-language-stacks.git"
+  },
+  "keywords": [
+    "security",
+    "sast",
+    "sca",
+    "devsecops",
+    "semgrep",
+    "trivy",
+    "gitleaks",
+    "ci-cd",
+    "concourse",
+    "github-actions"
+  ],
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.0",
+    "zod": "^3.24.0",
+    "js-yaml": "^4.1.0",
+    "@types/js-yaml": "^4.0.9",
+    "prettier": "^3.4.0",
+    "glob": "^11.0.0"
+  }
+}

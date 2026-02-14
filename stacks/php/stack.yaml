@@ -1,0 +1,32 @@
+name: php
+displayName: PHP
+category: interpreted
+packageManagers: [composer]
+buildTools: [php]
+frameworks: [laravel, symfony, wordpress, drupal, slim]
+scanners:
+  sast:
+    - name: semgrep
+      rulesets: [p/php]
+      config: configs/.semgrep.yml
+    - name: phpstan
+      config: configs/phpstan.neon
+  sca:
+    - name: trivy
+      scanType: fs
+      config: configs/trivy.yaml
+    - name: composer-audit
+  secrets:
+    - name: gitleaks
+      config: shared
+  dast:
+    - name: zap
+      applicableTo: [laravel, symfony, wordpress, drupal, slim]
+  container:
+    - name: trivy
+      scanType: image
+ciTemplates:
+  concourse: pipelines/concourse/pipeline.yml
+  githubActions: pipelines/github-actions/security.yml
+skill: skills/secure-php.md
+compliance: [owasp-top-10, cwe-top-25]

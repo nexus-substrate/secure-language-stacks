@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+  <!-- SpotBugs Security Configuration with FindSecBugs Plugin -->
+
+  <!-- Include all security-related bug patterns from FindSecBugs -->
+  <Match>
+    <Bug category="SECURITY" />
+  </Match>
+
+  <!-- High Priority Security Bugs -->
+  <Match>
+    <Bug pattern="SQL_INJECTION" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="SQL_INJECTION_HIBERNATE" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="SQL_INJECTION_JPA" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="XXE_DOCUMENT" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="XXE_SAXPARSER" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="XXE_XMLREADER" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="OBJECT_DESERIALIZATION" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="LDAP_INJECTION" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="COMMAND_INJECTION" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="PATH_TRAVERSAL_IN" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="PATH_TRAVERSAL_OUT" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="XSS_REQUEST_WRAPPER" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="XSS_SERVLET" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="XSS_JSP_PRINT" />
+    <Priority value="1" />
+  </Match>
+
+  <!-- Cryptography Issues -->
+  <Match>
+    <Bug pattern="WEAK_MESSAGE_DIGEST_MD5" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="WEAK_MESSAGE_DIGEST_SHA1" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="DES_USAGE" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="RSA_NO_PADDING" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="STATIC_IV" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="ECB_MODE" />
+    <Priority value="1" />
+  </Match>
+
+  <!-- Authentication & Session Management -->
+  <Match>
+    <Bug pattern="WEAK_TRUST_MANAGER" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="WEAK_HOSTNAME_VERIFIER" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="COOKIE_USAGE" />
+    <Priority value="2" />
+  </Match>
+
+  <Match>
+    <Bug pattern="INSECURE_COOKIE" />
+    <Priority value="1" />
+  </Match>
+
+  <!-- Spring Security Issues -->
+  <Match>
+    <Bug pattern="SPRING_CSRF_PROTECTION_DISABLED" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="SPRING_ENDPOINT_PASSWORD_ENCODER" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="UNSAFE_JACKSON_DESERIALIZATION" />
+    <Priority value="1" />
+  </Match>
+
+  <!-- Medium Priority Security Bugs -->
+  <Match>
+    <Bug pattern="HARD_CODE_PASSWORD" />
+    <Priority value="2" />
+  </Match>
+
+  <Match>
+    <Bug pattern="HARD_CODE_KEY" />
+    <Priority value="2" />
+  </Match>
+
+  <Match>
+    <Bug pattern="PREDICTABLE_RANDOM" />
+    <Priority value="2" />
+  </Match>
+
+  <Match>
+    <Bug pattern="URLCONNECTION_SSRF_FD" />
+    <Priority value="2" />
+  </Match>
+
+  <Match>
+    <Bug pattern="EXTERNAL_CONFIG_CONTROL" />
+    <Priority value="2" />
+  </Match>
+
+  <!-- Expression Language Injection -->
+  <Match>
+    <Bug pattern="EL_INJECTION" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="SPEL_INJECTION" />
+    <Priority value="1" />
+  </Match>
+
+  <Match>
+    <Bug pattern="OGNL_INJECTION" />
+    <Priority value="1" />
+  </Match>
+
+  <!-- File & Resource Handling -->
+  <Match>
+    <Bug pattern="FILE_UPLOAD_FILENAME" />
+    <Priority value="2" />
+  </Match>
+
+  <Match>
+    <Bug pattern="UNVALIDATED_REDIRECT" />
+    <Priority value="2" />
+  </Match>
+
+  <!-- Exclude test code from certain checks (optional) -->
+  <!-- Uncomment to reduce noise from test files -->
+  <!--
+  <Match>
+    <Class name="~.*Test$" />
+    <Not>
+      <Bug pattern="SQL_INJECTION,XXE_DOCUMENT,OBJECT_DESERIALIZATION" />
+    </Not>
+  </Match>
+  -->
+
+  <!-- Exclude generated code -->
+  <Match>
+    <Class name="~.*\.generated\..*" />
+  </Match>
+
+  <Match>
+    <Package name="~.*\.proto\..*" />
+  </Match>
+</FindBugsFilter>

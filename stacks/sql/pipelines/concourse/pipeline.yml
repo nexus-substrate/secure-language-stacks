@@ -1,0 +1,141 @@
+resources:
+  - name: source-code
+    type: git
+    source:
+      uri: ((git-repo-uri))
+      branch: ((git-branch))
+      private_key: ((git-private-key))
+
+  - name: security-results
+    type: s3
+    source:
+      bucket: ((s3-bucket))
+      region_name: ((s3-region))
+      access_key_id: ((s3-access-key))
+      secret_access_key: ((s3-secret-key))
+      versioned_file: sql-security-results.json
+
+jobs:
+  - name: sql-security-scan
+    plan:
+      - get: source-code
+        trigger: true
+
+      - task: semgrep-sql
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: returntocorp/semgrep
+              tag: latest
+          inputs:
+            - name: source-code
+          outputs:
+            - name: semgrep-results
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                cd source-code
+                semgrep --config p/sql-injection \
+                  --config configs/.semgrep.yml \
+                  --json \
+                  --output ../semgrep-results/sql-semgrep.json \
+                  --include '*.sql' \
+                  .
+                if [ -s ../semgrep-results/sql-semgrep.json ]; then
+                  jq '.results | length' ../semgrep-results/sql-semgrep.json
+                  exit 1
+                fi
+
+      - task: sqlfluff-lint
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: python
+              tag: 3.11-slim
+          inputs:
+            - name: source-code
+          outputs:
+            - name: sqlfluff-results
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                pip install sqlfluff
+                cd source-code
+                sqlfluff lint \
+                  --format json \
+                  --config configs/.sqlfluff \
+                  . > ../sqlfluff-results/sql-sqlfluff.json || true
+
+                # Check for critical violations
+                CRITICAL=$(jq '[.[] | select(.severity == "error")] | length' ../sqlfluff-results/sql-sqlfluff.json)
+                if [ "$CRITICAL" -gt 0 ]; then
+                  echo "Found $CRITICAL critical SQL violations"
+                  exit 1
+                fi
+
+      - task: gitleaks-secrets
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: zricethezav/gitleaks
+              tag: latest
+          inputs:
+            - name: source-code
+          outputs:
+            - name: gitleaks-results
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                cd source-code
+                gitleaks detect \
+                  --source . \
+                  --report-format json \
+                  --report-path ../gitleaks-results/sql-gitleaks.json \
+                  --exit-code 1
+
+      - task: aggregate-results
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: stedolan/jq
+              tag: latest
+          inputs:
+            - name: semgrep-results
+            - name: sqlfluff-results
+            - name: gitleaks-results
+          outputs:
+            - name: aggregated-results
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                jq -s '{
+                  stack: "sql",
+                  timestamp: now | todate,
+                  semgrep: .[0],
+                  sqlfluff: .[1],
+                  gitleaks: .[2]
+                }' \
+                  semgrep-results/sql-semgrep.json \
+                  sqlfluff-results/sql-sqlfluff.json \
+                  gitleaks-results/sql-gitleaks.json \
+                  > aggregated-results/sql-security-results.json
+
+      - put: security-results
+        params:
+          file: aggregated-results/sql-security-results.json

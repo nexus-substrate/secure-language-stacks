@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <!--
+    OWASP Dependency-Check Suppression File for Kotlin Projects
+
+    This file is used to suppress false positives in dependency vulnerability scanning.
+    Each suppression should include:
+    - Reason for suppression
+    - CVE identifier or vulnerability pattern
+    - File path or package pattern
+    - Expiration date (if applicable)
+
+    Review suppressions regularly and remove when no longer needed.
+    -->
+
+    <!-- Example: Suppress false positive for test dependencies -->
+    <!--
+    <suppress>
+        <notes><![CDATA[
+        Test-only dependency, not included in production builds.
+        False positive for CVE-2023-XXXXX.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/kotlin\-test.*$</packageUrl>
+        <cve>CVE-2023-XXXXX</cve>
+    </suppress>
+    -->
+
+    <!-- Example: Suppress vulnerability in transitive dependency with mitigation -->
+    <!--
+    <suppress>
+        <notes><![CDATA[
+        Vulnerability in transitive dependency from kotlinx-coroutines.
+        Mitigated by input validation in application layer.
+        Expires: 2024-12-31
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlinx/kotlinx\-coroutines.*$</packageUrl>
+        <vulnerabilityName>CVE-2023-YYYYY</vulnerabilityName>
+        <until>2024-12-31Z</until>
+    </suppress>
+    -->
+
+    <!-- Example: Suppress by file path for specific dependency -->
+    <!--
+    <suppress>
+        <notes><![CDATA[
+        Development-only dependency for code generation.
+        Not included in runtime classpath.
+        ]]></notes>
+        <filePath regex="true">.*gradle/wrapper/gradle-wrapper\.jar</filePath>
+    </suppress>
+    -->
+
+    <!-- Example: Suppress by CPE (Common Platform Enumeration) -->
+    <!--
+    <suppress>
+        <notes><![CDATA[
+        False positive match due to similar naming.
+        This is Kotlin's Jackson module, not the vulnerable component.
+        ]]></notes>
+        <cpe>cpe:/a:fasterxml:jackson-databind</cpe>
+        <packageUrl regex="true">^pkg:maven/com\.fasterxml\.jackson\.module/jackson\-module\-kotlin.*$</packageUrl>
+    </suppress>
+    -->
+
+    <!-- Example: Suppress by GAV (Group:Artifact:Version) coordinates -->
+    <!--
+    <suppress>
+        <notes><![CDATA[
+        Known issue in Android SDK component.
+        Awaiting upstream fix. Tracked in internal issue #12345.
+        ]]></notes>
+        <gav regex="true">^com\.android\.tools\.build:gradle:.*$</gav>
+        <cve>CVE-2023-ZZZZZ</cve>
+    </suppress>
+    -->
+
+    <!-- Android SDK Build Tools - Common false positives -->
+    <!--
+    <suppress>
+        <notes><![CDATA[
+        Android build tools are development dependencies only.
+        Not included in final APK/AAB.
+        ]]></notes>
+        <gav regex="true">^com\.android\.tools.*:.*:.*$</gav>
+    </suppress>
+    -->
+
+    <!-- Kotlin Compiler - Development dependency -->
+    <!--
+    <suppress>
+        <notes><![CDATA[
+        Kotlin compiler is a build-time dependency.
+        Not included in runtime classpath.
+        ]]></notes>
+        <gav regex="true">^org\.jetbrains\.kotlin:kotlin\-compiler.*:.*$</gav>
+    </suppress>
+    -->
+
+    <!--
+    Add project-specific suppressions below this line.
+    Always include detailed notes explaining the suppression reason.
+    Use 'until' attribute for temporary suppressions with expiration dates.
+    -->
+
+</suppressions>

@@ -1,0 +1,89 @@
+rules:
+  - id: shell-command-injection-variable-expansion
+    pattern-either:
+      - pattern: eval "$..."
+      - pattern: eval ${...}
+      - pattern: sh -c "$..."
+      - pattern: bash -c "$..."
+      - pattern: system("$...")
+    message: Potential command injection via variable expansion in eval or shell execution
+    severity: ERROR
+    languages: [bash]
+    metadata:
+      cwe: CWE-78
+      owasp: A03:2021-Injection
+      confidence: HIGH
+
+  - id: shell-unquoted-variable-expansion
+    pattern-either:
+      - pattern: rm -rf $...
+      - pattern: chmod ... $...
+      - pattern: chown ... $...
+    message: Unquoted variable expansion can lead to word splitting and globbing attacks
+    severity: WARNING
+    languages: [bash]
+    metadata:
+      cwe: CWE-78
+      owasp: A03:2021-Injection
+      confidence: MEDIUM
+
+  - id: shell-curl-pipe-bash
+    pattern-either:
+      - pattern: curl ... | bash
+      - pattern: curl ... | sh
+      - pattern: wget ... | bash
+      - pattern: wget ... | sh
+    message: Piping remote content directly to shell is dangerous - no integrity verification
+    severity: ERROR
+    languages: [bash]
+    metadata:
+      cwe: CWE-494
+      owasp: A08:2021-Software and Data Integrity Failures
+      confidence: HIGH
+
+  - id: shell-insecure-temp-file
+    pattern-either:
+      - pattern: /tmp/$...
+      - pattern: /var/tmp/$...
+    message: Predictable temp file paths can lead to symlink attacks - use mktemp instead
+    severity: WARNING
+    languages: [bash]
+    metadata:
+      cwe: CWE-377
+      owasp: A01:2021-Broken Access Control
+      confidence: MEDIUM
+
+  - id: shell-hardcoded-credentials
+    pattern-either:
+      - pattern: PASSWORD="..."
+      - pattern: API_KEY="..."
+      - pattern: SECRET="..."
+      - pattern: TOKEN="..."
+    message: Hardcoded credentials detected - use environment variables or secret management
+    severity: ERROR
+    languages: [bash]
+    metadata:
+      cwe: CWE-798
+      owasp: A07:2021-Identification and Authentication Failures
+      confidence: HIGH
+
+  - id: shell-dangerous-find-exec
+    pattern: find ... -exec rm ...
+    message: find -exec rm without proper quoting can lead to unexpected deletions
+    severity: WARNING
+    languages: [bash]
+    metadata:
+      cwe: CWE-78
+      confidence: MEDIUM
+
+  - id: shell-source-untrusted-file
+    pattern-either:
+      - pattern: source /tmp/...
+      - pattern: . /tmp/...
+    message: Sourcing files from /tmp is dangerous - untrusted code execution risk
+    severity: ERROR
+    languages: [bash]
+    metadata:
+      cwe: CWE-494
+      owasp: A08:2021-Software and Data Integrity Failures
+      confidence: HIGH

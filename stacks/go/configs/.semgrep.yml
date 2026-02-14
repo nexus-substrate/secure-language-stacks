@@ -1,0 +1,188 @@
+rules:
+  # SQL Injection
+  - id: go-sql-injection
+    pattern-either:
+      - pattern: db.Query($FMT, ...)
+      - pattern: db.Exec($FMT, ...)
+      - pattern: db.QueryRow($FMT, ...)
+    message: Potential SQL injection. Use parameterized queries with placeholders.
+    languages: [go]
+    severity: ERROR
+    metadata:
+      cwe: CWE-89
+      owasp: A03:2021
+
+  # Command Injection
+  - id: go-command-injection
+    pattern-either:
+      - pattern: exec.Command("sh", "-c", $INPUT)
+      - pattern: exec.Command("bash", "-c", $INPUT)
+      - pattern: exec.CommandContext($CTX, "sh", "-c", $INPUT)
+    message: Command injection risk. Avoid shell execution with user input.
+    languages: [go]
+    severity: ERROR
+    metadata:
+      cwe: CWE-78
+      owasp: A03:2021
+
+  # Path Traversal
+  - id: go-path-traversal
+    pattern-either:
+      - pattern: os.Open($INPUT)
+      - pattern: ioutil.ReadFile($INPUT)
+      - pattern: os.ReadFile($INPUT)
+    message: Path traversal risk. Validate and sanitize file paths.
+    languages: [go]
+    severity: WARNING
+    metadata:
+      cwe: CWE-22
+      owasp: A01:2021
+
+  # SSRF
+  - id: go-ssrf
+    pattern-either:
+      - pattern: http.Get($URL)
+      - pattern: http.Post($URL, ...)
+      - pattern: http.NewRequest($METHOD, $URL, ...)
+    message: SSRF risk. Validate and whitelist URLs before making requests.
+    languages: [go]
+    severity: WARNING
+    metadata:
+      cwe: CWE-918
+      owasp: A10:2021
+
+  # Unsafe Pointer Use
+  - id: go-unsafe-pointer
+    pattern: unsafe.Pointer(...)
+    message: Use of unsafe package can lead to memory corruption. Avoid unless absolutely necessary.
+    languages: [go]
+    severity: WARNING
+    metadata:
+      cwe: CWE-119
+
+  # Weak Crypto - MD5
+  - id: go-weak-crypto-md5
+    pattern-either:
+      - pattern: md5.New()
+      - pattern: md5.Sum(...)
+    message: MD5 is cryptographically broken. Use SHA-256 or stronger.
+    languages: [go]
+    severity: ERROR
+    metadata:
+      cwe: CWE-327
+      owasp: A02:2021
+
+  # Weak Crypto - SHA1
+  - id: go-weak-crypto-sha1
+    pattern-either:
+      - pattern: sha1.New()
+      - pattern: sha1.Sum(...)
+    message: SHA-1 is cryptographically weak. Use SHA-256 or stronger.
+    languages: [go]
+    severity: ERROR
+    metadata:
+      cwe: CWE-327
+      owasp: A02:2021
+
+  # Insecure Random
+  - id: go-insecure-random
+    pattern: math/rand.$FUNC(...)
+    message: math/rand is not cryptographically secure. Use crypto/rand for security-sensitive operations.
+    languages: [go]
+    severity: WARNING
+    metadata:
+      cwe: CWE-338
+      owasp: A02:2021
+
+  # Race Conditions
+  - id: go-race-condition
+    pattern-either:
+      - pattern: |
+          $X = $Y
+          ...
+          $X = $Z
+      - pattern: |
+          go func() { $X = $Y }()
+          ...
+          $A = $X
+    message: Potential race condition. Use sync primitives or channels.
+    languages: [go]
+    severity: WARNING
+    metadata:
+      cwe: CWE-362
+
+  # Hardcoded Credentials
+  - id: go-hardcoded-credentials
+    pattern-either:
+      - pattern: |
+          const $VAR = "$SECRET"
+      - pattern: |
+          var $VAR = "$SECRET"
+    metavariable-regex:
+      metavariable: $VAR
+      regex: (?i)(password|passwd|pwd|secret|token|api_key|apikey)
+    message: Hardcoded credentials detected. Use environment variables or secret management.
+    languages: [go]
+    severity: ERROR
+    metadata:
+      cwe: CWE-798
+      owasp: A07:2021
+
+  # TLS Certificate Validation Disabled
+  - id: go-tls-skip-verify
+    pattern: |
+      tls.Config{
+        ...,
+        InsecureSkipVerify: true,
+        ...,
+      }
+    message: TLS certificate validation disabled. This enables MITM attacks.
+    languages: [go]
+    severity: ERROR
+    metadata:
+      cwe: CWE-295
+      owasp: A02:2021
+
+  # Defer in Loop
+  - id: go-defer-in-loop
+    pattern: |
+      for $COND {
+        ...
+        defer $FUNC(...)
+        ...
+      }
+    message: Defer in loop may cause resource exhaustion. Move defer outside or use explicit cleanup.
+    languages: [go]
+    severity: WARNING
+    metadata:
+      cwe: CWE-404
+
+  # Error Ignored
+  - id: go-error-ignored
+    pattern: |
+      $FUNC(...), _
+    message: Error return value ignored. Always handle errors explicitly.
+    languages: [go]
+    severity: WARNING
+    metadata:
+      cwe: CWE-391
+
+  # HTTP Server without Timeouts
+  - id: go-http-server-no-timeout
+    pattern: |
+      http.Server{
+        ...,
+      }
+    pattern-not: |
+      http.Server{
+        ...,
+        ReadTimeout: $T1,
+        WriteTimeout: $T2,
+        ...,
+      }
+    message: HTTP server without timeouts is vulnerable to slowloris attacks. Set ReadTimeout and WriteTimeout.
+    languages: [go]
+    severity: WARNING
+    metadata:
+      cwe: CWE-400
+      owasp: A05:2021

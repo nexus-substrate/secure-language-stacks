@@ -1,0 +1,97 @@
+name: Swift Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 2 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  swift-security:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '5.9'
+
+      - name: Resolve Swift dependencies
+        run: swift package resolve
+
+      - name: Semgrep SAST
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/swift
+            stacks/swift/configs/.semgrep.yml
+          generateSarif: true
+        continue-on-error: true
+
+      - name: Upload Semgrep SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+        if: always()
+
+      - name: Trivy Swift SCA
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          trivy-config: stacks/swift/configs/trivy.yaml
+          format: sarif
+          output: trivy-swift.sarif
+        continue-on-error: true
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-swift.sarif
+        if: always()
+
+      - name: Gitleaks Secret Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Swift Build Test
+        run: swift build
+        continue-on-error: true
+
+      - name: Generate Security Report
+        if: always()
+        run: |
+          cat > swift-security-summary.json <<EOF
+          {
+            "stack": "swift",
+            "timestamp": "$(date -Iseconds)",
+            "commit": "${{ github.sha }}",
+            "branch": "${{ github.ref_name }}",
+            "scans": {
+              "semgrep": "completed",
+              "trivy": "completed",
+              "gitleaks": "completed"
+            }
+          }
+          EOF
+
+      - name: Upload Security Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: swift-security-results
+          path: |
+            semgrep.sarif
+            trivy-swift.sarif
+            swift-security-summary.json
+          retention-days: 30

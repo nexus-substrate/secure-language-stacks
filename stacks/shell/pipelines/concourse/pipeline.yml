@@ -1,0 +1,193 @@
+---
+resource_types:
+  - name: pull-request
+    type: registry-image
+    source:
+      repository: teliaoss/github-pr-resource
+
+resources:
+  - name: repo
+    type: git
+    icon: github
+    source:
+      uri: ((repo-uri))
+      branch: ((branch))
+      private_key: ((deploy-key))
+
+  - name: pull-requests
+    type: pull-request
+    icon: source-pull
+    source:
+      repository: ((github-repository))
+      access_token: ((github-token))
+
+jobs:
+  - name: shell-security-scan
+    public: true
+    plan:
+      - get: repo
+        trigger: true
+
+      - in_parallel:
+          fail_fast: true
+          steps:
+            - task: shellcheck
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: koalaman/shellcheck-alpine
+                    tag: stable
+                inputs:
+                  - name: repo
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      cd repo
+                      find . -type f -name "*.sh" -o -name "*.bash" | while read -r file; do
+                        echo "Checking: $file"
+                        shellcheck --config-file=stacks/shell/configs/.shellcheckrc "$file"
+                      done
+
+            - task: semgrep
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: returntocorp/semgrep
+                    tag: latest
+                inputs:
+                  - name: repo
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      cd repo
+                      semgrep --config=stacks/shell/configs/.semgrep.yml \
+                        --config=p/bash \
+                        --severity=ERROR \
+                        --severity=WARNING \
+                        --json \
+                        --output=semgrep-results.json \
+                        .
+
+                      # Fail if high severity findings
+                      if [ -f semgrep-results.json ]; then
+                        errors=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' semgrep-results.json)
+                        if [ "$errors" -gt 0 ]; then
+                          echo "Found $errors critical security issues"
+                          jq '.results[] | select(.extra.severity == "ERROR")' semgrep-results.json
+                          exit 1
+                        fi
+                      fi
+
+            - task: gitleaks
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: zricethezav/gitleaks
+                    tag: latest
+                inputs:
+                  - name: repo
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      cd repo
+                      gitleaks detect \
+                        --config=shared/configs/.gitleaks.toml \
+                        --source=. \
+                        --report-format=json \
+                        --report-path=gitleaks-report.json \
+                        --verbose
+
+  - name: pr-security-scan
+    public: true
+    plan:
+      - get: pull-requests
+        trigger: true
+        version: every
+
+      - put: pull-requests
+        params:
+          path: pull-requests
+          status: pending
+          context: security-scan
+
+      - in_parallel:
+          fail_fast: false
+          steps:
+            - task: shellcheck
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: koalaman/shellcheck-alpine
+                    tag: stable
+                inputs:
+                  - name: pull-requests
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      cd pull-requests
+                      find . -type f -name "*.sh" -o -name "*.bash" | while read -r file; do
+                        shellcheck --config-file=stacks/shell/configs/.shellcheckrc "$file" || exit 1
+                      done
+              on_failure:
+                put: pull-requests
+                params:
+                  path: pull-requests
+                  status: failure
+                  context: security-scan
+
+            - task: semgrep
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: returntocorp/semgrep
+                    tag: latest
+                inputs:
+                  - name: pull-requests
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      cd pull-requests
+                      semgrep --config=stacks/shell/configs/.semgrep.yml \
+                        --config=p/bash \
+                        --severity=ERROR \
+                        --json \
+                        --output=semgrep-results.json \
+                        .
+
+                      errors=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' semgrep-results.json)
+                      if [ "$errors" -gt 0 ]; then
+                        exit 1
+                      fi
+              on_failure:
+                put: pull-requests
+                params:
+                  path: pull-requests
+                  status: failure
+                  context: security-scan
+
+      on_success:
+        put: pull-requests
+        params:
+          path: pull-requests
+          status: success
+          context: security-scan

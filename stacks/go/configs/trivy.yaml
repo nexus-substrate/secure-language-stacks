@@ -1,0 +1,43 @@
+scan:
+  scanners:
+    - vuln
+    - secret
+  skip-dirs:
+    - vendor
+    - node_modules
+    - .git
+  skip-files:
+    - "**/*_test.go"
+    - "**/testdata/**"
+
+vulnerability:
+  type:
+    - os
+    - library
+  severity:
+    - CRITICAL
+    - HIGH
+    - MEDIUM
+  ignore-unfixed: false
+
+secret:
+  config: ""
+
+format: json
+
+cache:
+  dir: .trivycache
+  clear: false
+
+timeout: 5m0s
+
+golang:
+  include-dev: false
+  include-test: false
+
+db:
+  skip-update: false
+
+report:
+  format: json
+  output: trivy-report.json

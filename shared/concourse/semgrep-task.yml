@@ -1,0 +1,31 @@
+---
+platform: linux
+
+image_resource:
+  type: registry-image
+  source:
+    repository: semgrep/semgrep
+    tag: latest
+
+inputs:
+  - name: source
+
+params:
+  SEMGREP_RULES: p/default
+  SEMGREP_CONFIG: ""
+
+run:
+  path: sh
+  args:
+    - -ec
+    - |
+      cd source
+      if [ -n "$SEMGREP_CONFIG" ] && [ -f "$SEMGREP_CONFIG" ]; then
+        semgrep scan --config "$SEMGREP_CONFIG" --sarif --output semgrep-results.sarif .
+      else
+        semgrep scan --config "$SEMGREP_RULES" --sarif --output semgrep-results.sarif .
+      fi
+      echo "Semgrep scan complete"
+
+outputs:
+  - name: source

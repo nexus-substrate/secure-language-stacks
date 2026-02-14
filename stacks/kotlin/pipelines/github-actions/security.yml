@@ -1,0 +1,325 @@
+name: Kotlin Security Scan
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+env:
+  JAVA_VERSION: '17'
+  GRADLE_VERSION: '8.5'
+
+jobs:
+  semgrep:
+    name: Semgrep SAST Scan
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Semgrep
+        run: |
+          semgrep --config p/kotlin \
+                  --config stacks/kotlin/configs/.semgrep.yml \
+                  --sarif \
+                  --output semgrep-results.sarif \
+                  --error \
+                  --verbose
+
+      - name: Upload Semgrep results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep-results.sarif
+          category: semgrep
+
+      - name: Generate Semgrep report
+        if: always()
+        run: |
+          semgrep --config p/kotlin \
+                  --config stacks/kotlin/configs/.semgrep.yml \
+                  --json \
+                  --output semgrep-results.json
+
+      - name: Upload Semgrep artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-results
+          path: |
+            semgrep-results.sarif
+            semgrep-results.json
+
+  detekt:
+    name: Detekt Static Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Run Detekt
+        run: |
+          ./gradlew detekt --no-daemon --stacktrace
+        continue-on-error: true
+
+      - name: Upload Detekt results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: build/reports/detekt/detekt.sarif
+          category: detekt
+
+      - name: Upload Detekt artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: detekt-results
+          path: |
+            build/reports/detekt/
+
+  trivy-fs:
+    name: Trivy Filesystem Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner in fs mode
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          trivy-config: stacks/kotlin/configs/trivy.yaml
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-fs
+
+      - name: Run Trivy with JSON output
+        uses: aquasecurity/trivy-action@master
+        if: always()
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'json'
+          output: 'trivy-results.json'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          trivy-config: stacks/kotlin/configs/trivy.yaml
+
+      - name: Upload Trivy artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-fs-results
+          path: |
+            trivy-results.sarif
+            trivy-results.json
+
+  gitleaks:
+    name: Gitleaks Secret Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: true
+          GITLEAKS_ENABLE_SUMMARY: true
+
+      - name: Upload Gitleaks SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: results.sarif
+          category: gitleaks
+
+  dependency-check:
+    name: OWASP Dependency-Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build project (to resolve dependencies)
+        run: |
+          ./gradlew build -x test --no-daemon
+
+      - name: Run OWASP Dependency-Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'Kotlin Security Scan'
+          path: '.'
+          format: 'ALL'
+          args: >
+            --suppression stacks/kotlin/configs/dependency-check.xml
+            --failOnCVSS 7
+            --enableExperimental
+            --nvdApiKey ${{ secrets.NVD_API_KEY }}
+
+      - name: Upload Dependency-Check results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: reports/dependency-check-report.sarif
+          category: dependency-check
+
+      - name: Upload Dependency-Check artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-check-results
+          path: reports/
+
+  trivy-image:
+    name: Trivy Container Image Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t kotlin-app:${{ github.sha }} .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'kotlin-app:${{ github.sha }}'
+          format: 'sarif'
+          output: 'trivy-image.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy image results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+
+  security-summary:
+    name: Security Scan Summary
+    runs-on: ubuntu-latest
+    needs: [semgrep, detekt, trivy-fs, gitleaks, dependency-check]
+    if: always()
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Generate summary
+        run: |
+          echo "# Kotlin Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Semgrep results
+          if [ -f semgrep-results/semgrep-results.json ]; then
+            SEMGREP_COUNT=$(jq '.results | length' semgrep-results/semgrep-results.json)
+            echo "## Semgrep SAST: $SEMGREP_COUNT findings" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Trivy results
+          if [ -f trivy-fs-results/trivy-results.json ]; then
+            TRIVY_CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-fs-results/trivy-results.json)
+            TRIVY_HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-fs-results/trivy-results.json)
+            echo "## Trivy SCA: $TRIVY_CRITICAL critical, $TRIVY_HIGH high" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Gitleaks results
+          if [ -f gitleaks-results/results.json ]; then
+            GITLEAKS_COUNT=$(jq '. | length' gitleaks-results/results.json)
+            echo "## Gitleaks Secrets: $GITLEAKS_COUNT findings" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See job artifacts for detailed reports." >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let comment = '## 🔒 Security Scan Results\n\n';
+
+            // Add semgrep results
+            if (fs.existsSync('semgrep-results/semgrep-results.json')) {
+              const semgrep = JSON.parse(fs.readFileSync('semgrep-results/semgrep-results.json'));
+              comment += `**Semgrep SAST:** ${semgrep.results.length} findings\n`;
+            }
+
+            // Add trivy results
+            if (fs.existsSync('trivy-fs-results/trivy-results.json')) {
+              const trivy = JSON.parse(fs.readFileSync('trivy-fs-results/trivy-results.json'));
+              const vulns = trivy.Results?.flatMap(r => r.Vulnerabilities || []) || [];
+              const critical = vulns.filter(v => v.Severity === 'CRITICAL').length;
+              const high = vulns.filter(v => v.Severity === 'HIGH').length;
+              comment += `**Trivy SCA:** ${critical} critical, ${high} high vulnerabilities\n`;
+            }
+
+            comment += '\nSee workflow run for detailed reports.';
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });

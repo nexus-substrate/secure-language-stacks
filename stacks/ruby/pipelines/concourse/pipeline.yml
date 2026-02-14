@@ -1,0 +1,329 @@
+# Concourse CI Pipeline - Ruby Security Scanning
+# https://concourse-ci.org/
+
+resources:
+  - name: source-code
+    type: git
+    icon: github
+    source:
+      uri: ((git.uri))
+      branch: ((git.branch))
+      private_key: ((git.private_key))
+
+  - name: security-results
+    type: s3
+    icon: database
+    source:
+      bucket: ((s3.bucket))
+      region_name: ((s3.region))
+      access_key_id: ((s3.access_key))
+      secret_access_key: ((s3.secret_key))
+      versioned_file: security-reports/ruby-((git.branch))-latest.tar.gz
+
+jobs:
+  # Job 1: SAST with Semgrep
+  - name: semgrep-scan
+    plan:
+      - get: source-code
+        trigger: true
+      - task: run-semgrep
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: returntocorp/semgrep
+              tag: latest
+          inputs:
+            - name: source-code
+          outputs:
+            - name: semgrep-results
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                cd source-code
+                semgrep scan \
+                  --config=stacks/ruby/configs/.semgrep.yml \
+                  --config=p/ruby \
+                  --config=p/rails \
+                  --config=p/owasp-top-ten \
+                  --json \
+                  --output=../semgrep-results/semgrep.json \
+                  --severity=ERROR \
+                  --severity=WARNING \
+                  --max-memory=4096 \
+                  .
+
+                # Check for critical findings
+                CRITICAL_COUNT=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' ../semgrep-results/semgrep.json)
+                if [ "$CRITICAL_COUNT" -gt 0 ]; then
+                  echo "❌ Found $CRITICAL_COUNT critical security issues"
+                  exit 1
+                fi
+
+                echo "✅ Semgrep scan passed"
+        on_failure:
+          task: report-failure
+          config:
+            platform: linux
+            image_resource:
+              type: registry-image
+              source:
+                repository: alpine
+                tag: latest
+            run:
+              path: sh
+              args:
+                - -c
+                - echo "Semgrep scan failed - critical vulnerabilities detected"
+
+  # Job 2: Rails Security with Brakeman
+  - name: brakeman-scan
+    plan:
+      - get: source-code
+        trigger: true
+        passed: [semgrep-scan]
+      - task: run-brakeman
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: ruby
+              tag: 3.2-alpine
+          inputs:
+            - name: source-code
+          outputs:
+            - name: brakeman-results
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                apk add --no-cache build-base git
+                gem install brakeman --no-document
+
+                cd source-code
+
+                # Check if Rails app
+                if [ ! -f "config/application.rb" ]; then
+                  echo "ℹ️  Not a Rails application, skipping Brakeman"
+                  echo "[]" > ../brakeman-results/brakeman.json
+                  exit 0
+                fi
+
+                brakeman \
+                  --config-file=stacks/ruby/configs/brakeman.yml \
+                  --format=json \
+                  --output=../brakeman-results/brakeman.json \
+                  --no-pager \
+                  --force \
+                  .
+
+                # Check for high confidence warnings
+                HIGH_CONF=$(jq '[.warnings[] | select(.confidence == "High")] | length' ../brakeman-results/brakeman.json)
+                if [ "$HIGH_CONF" -gt 0 ]; then
+                  echo "⚠️  Found $HIGH_CONF high confidence security warnings"
+                  # Note: not failing build, just warning
+                fi
+
+                echo "✅ Brakeman scan completed"
+
+  # Job 3: SCA with Trivy
+  - name: trivy-sca-scan
+    plan:
+      - get: source-code
+        trigger: true
+        passed: [semgrep-scan]
+      - task: run-trivy
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: aquasec/trivy
+              tag: latest
+          inputs:
+            - name: source-code
+          outputs:
+            - name: trivy-results
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                cd source-code
+
+                # Update vulnerability database
+                trivy image --download-db-only
+
+                # Scan Gemfile.lock
+                trivy fs \
+                  --config=stacks/ruby/configs/trivy.yaml \
+                  --format=json \
+                  --output=../trivy-results/trivy-sca.json \
+                  --severity=CRITICAL,HIGH,MEDIUM \
+                  --scanners=vuln \
+                  .
+
+                # Check for critical/high vulnerabilities
+                CRITICAL_HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL" or .Severity == "HIGH")] | length' ../trivy-results/trivy-sca.json)
+                if [ "$CRITICAL_HIGH" -gt 0 ]; then
+                  echo "❌ Found $CRITICAL_HIGH critical/high vulnerabilities"
+                  exit 1
+                fi
+
+                echo "✅ Trivy SCA scan passed"
+
+  # Job 4: Bundler Audit
+  - name: bundler-audit-scan
+    plan:
+      - get: source-code
+        trigger: true
+        passed: [semgrep-scan]
+      - task: run-bundler-audit
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: ruby
+              tag: 3.2-alpine
+          inputs:
+            - name: source-code
+          outputs:
+            - name: bundler-audit-results
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                apk add --no-cache build-base git
+                gem install bundler-audit --no-document
+
+                cd source-code
+
+                # Update advisory database
+                bundle-audit update
+
+                # Run audit
+                bundle-audit check --format json > ../bundler-audit-results/bundler-audit.json || true
+
+                # Check for vulnerabilities
+                VULN_COUNT=$(jq '.results | length' ../bundler-audit-results/bundler-audit.json)
+                if [ "$VULN_COUNT" -gt 0 ]; then
+                  echo "⚠️  Found $VULN_COUNT vulnerable gems"
+                  jq -r '.results[] | "  - \(.gem.name) \(.gem.version): \(.advisory.title)"' ../bundler-audit-results/bundler-audit.json
+                  # Note: not failing build by default
+                fi
+
+                echo "✅ Bundler Audit completed"
+
+  # Job 5: Secret Scanning with Gitleaks
+  - name: gitleaks-scan
+    plan:
+      - get: source-code
+        trigger: true
+      - task: run-gitleaks
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: zricethezav/gitleaks
+              tag: latest
+          inputs:
+            - name: source-code
+          outputs:
+            - name: gitleaks-results
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                cd source-code
+                gitleaks detect \
+                  --source=. \
+                  --report-format=json \
+                  --report-path=../gitleaks-results/gitleaks.json \
+                  --exit-code=1 \
+                  --verbose \
+                  --no-git
+
+                echo "✅ No secrets detected"
+        on_failure:
+          task: handle-secrets
+          config:
+            platform: linux
+            image_resource:
+              type: registry-image
+              source:
+                repository: alpine
+                tag: latest
+            run:
+              path: sh
+              args:
+                - -c
+                - echo "❌ SECRETS DETECTED - immediate remediation required"
+
+  # Job 6: Aggregate Results
+  - name: aggregate-results
+    plan:
+      - get: source-code
+        trigger: true
+        passed:
+          - semgrep-scan
+          - brakeman-scan
+          - trivy-sca-scan
+          - bundler-audit-scan
+          - gitleaks-scan
+      - task: combine-reports
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: alpine
+              tag: latest
+          inputs:
+            - name: source-code
+          outputs:
+            - name: combined-results
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                apk add --no-cache jq tar gzip
+
+                mkdir -p combined-results/reports
+
+                # Create summary
+                cat > combined-results/summary.json <<EOF
+                {
+                  "timestamp": "$(date -Iseconds)",
+                  "pipeline": "ruby-security-scan",
+                  "branch": "((git.branch))",
+                  "commit": "$(cd source-code && git rev-parse HEAD)",
+                  "scans": {
+                    "semgrep": "completed",
+                    "brakeman": "completed",
+                    "trivy": "completed",
+                    "bundler-audit": "completed",
+                    "gitleaks": "completed"
+                  }
+                }
+                EOF
+
+                # Package results
+                tar -czf combined-results/security-reports.tar.gz \
+                  -C combined-results \
+                  summary.json
+
+                echo "✅ Security scan pipeline completed"
+      - put: security-results
+        params:
+          file: combined-results/security-reports.tar.gz
+          acl: private

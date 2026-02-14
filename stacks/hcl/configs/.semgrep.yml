@@ -1,0 +1,218 @@
+rules:
+  - id: terraform-s3-public-read
+    patterns:
+      - pattern: |
+          resource "aws_s3_bucket_acl" "..." {
+            ...
+            acl = "public-read"
+            ...
+          }
+    message: S3 bucket with public-read ACL exposes data to the internet
+    severity: ERROR
+    languages: [hcl]
+    metadata:
+      cwe: CWE-732
+      owasp: A01:2021-Broken Access Control
+      confidence: HIGH
+
+  - id: terraform-s3-public-read-write
+    patterns:
+      - pattern: |
+          resource "aws_s3_bucket_acl" "..." {
+            ...
+            acl = "public-read-write"
+            ...
+          }
+    message: S3 bucket with public-read-write ACL allows anyone to write data
+    severity: ERROR
+    languages: [hcl]
+    metadata:
+      cwe: CWE-732
+      owasp: A01:2021-Broken Access Control
+      confidence: HIGH
+
+  - id: terraform-security-group-open-ingress
+    patterns:
+      - pattern: |
+          resource "aws_security_group" "..." {
+            ...
+            ingress {
+              ...
+              cidr_blocks = ["0.0.0.0/0"]
+              ...
+            }
+            ...
+          }
+    message: Security group allows ingress from 0.0.0.0/0 (entire internet)
+    severity: ERROR
+    languages: [hcl]
+    metadata:
+      cwe: CWE-668
+      owasp: A05:2021-Security Misconfiguration
+      confidence: HIGH
+
+  - id: terraform-hardcoded-aws-credentials
+    pattern-either:
+      - pattern: |
+          provider "aws" {
+            ...
+            access_key = "..."
+            ...
+          }
+      - pattern: |
+          provider "aws" {
+            ...
+            secret_key = "..."
+            ...
+          }
+    message: Hardcoded AWS credentials in provider block - use AWS credential chain
+    severity: ERROR
+    languages: [hcl]
+    metadata:
+      cwe: CWE-798
+      owasp: A07:2021-Identification and Authentication Failures
+      confidence: HIGH
+
+  - id: terraform-rds-unencrypted-storage
+    patterns:
+      - pattern: |
+          resource "aws_db_instance" "..." {
+            ...
+          }
+      - pattern-not: |
+          resource "aws_db_instance" "..." {
+            ...
+            storage_encrypted = true
+            ...
+          }
+    message: RDS instance does not have storage encryption enabled
+    severity: ERROR
+    languages: [hcl]
+    metadata:
+      cwe: CWE-311
+      owasp: A02:2021-Cryptographic Failures
+      confidence: HIGH
+
+  - id: terraform-ebs-unencrypted-volume
+    patterns:
+      - pattern: |
+          resource "aws_ebs_volume" "..." {
+            ...
+          }
+      - pattern-not: |
+          resource "aws_ebs_volume" "..." {
+            ...
+            encrypted = true
+            ...
+          }
+    message: EBS volume is not encrypted - data at rest should be encrypted
+    severity: ERROR
+    languages: [hcl]
+    metadata:
+      cwe: CWE-311
+      owasp: A02:2021-Cryptographic Failures
+      confidence: HIGH
+
+  - id: terraform-ec2-metadata-v1
+    patterns:
+      - pattern: |
+          resource "aws_instance" "..." {
+            ...
+          }
+      - pattern-not: |
+          resource "aws_instance" "..." {
+            ...
+            metadata_options {
+              http_tokens = "required"
+              ...
+            }
+            ...
+          }
+    message: EC2 instance allows IMDSv1 (metadata service v1) - enforce IMDSv2
+    severity: WARNING
+    languages: [hcl]
+    metadata:
+      cwe: CWE-668
+      owasp: A05:2021-Security Misconfiguration
+      confidence: MEDIUM
+
+  - id: terraform-iam-wildcard-resource
+    patterns:
+      - pattern: |
+          resource "aws_iam_policy" "..." {
+            ...
+            policy = ... {
+              ...
+              "Resource": "*"
+              ...
+            }
+            ...
+          }
+    message: IAM policy grants permissions on all resources (*) - violates least privilege
+    severity: WARNING
+    languages: [hcl]
+    metadata:
+      cwe: CWE-732
+      owasp: A01:2021-Broken Access Control
+      confidence: MEDIUM
+
+  - id: terraform-iam-admin-policy
+    patterns:
+      - pattern: |
+          resource "aws_iam_policy_attachment" "..." {
+            ...
+            policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+            ...
+          }
+    message: IAM policy attachment grants AdministratorAccess - use least privilege
+    severity: ERROR
+    languages: [hcl]
+    metadata:
+      cwe: CWE-732
+      owasp: A01:2021-Broken Access Control
+      confidence: HIGH
+
+  - id: terraform-cloudtrail-not-encrypted
+    patterns:
+      - pattern: |
+          resource "aws_cloudtrail" "..." {
+            ...
+          }
+      - pattern-not: |
+          resource "aws_cloudtrail" "..." {
+            ...
+            kms_key_id = "..."
+            ...
+          }
+    message: CloudTrail logs are not encrypted with KMS - enable encryption
+    severity: WARNING
+    languages: [hcl]
+    metadata:
+      cwe: CWE-311
+      owasp: A02:2021-Cryptographic Failures
+      confidence: MEDIUM
+
+  - id: terraform-lambda-environment-secrets
+    patterns:
+      - pattern: |
+          resource "aws_lambda_function" "..." {
+            ...
+            environment {
+              variables = {
+                ...
+                $KEY = "..."
+                ...
+              }
+            }
+            ...
+          }
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: (?i)(password|secret|api_key|token|credentials)
+    message: Sensitive values in Lambda environment variables - use AWS Secrets Manager
+    severity: ERROR
+    languages: [hcl]
+    metadata:
+      cwe: CWE-798
+      owasp: A07:2021-Identification and Authentication Failures
+      confidence: HIGH

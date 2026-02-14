@@ -1,0 +1,202 @@
+resources:
+  - name: source-code
+    type: git
+    source:
+      uri: ((git-uri))
+      branch: ((git-branch))
+      private_key: ((git-private-key))
+
+  - name: semgrep-image
+    type: registry-image
+    source:
+      repository: returntocorp/semgrep
+      tag: latest
+
+  - name: trivy-image
+    type: registry-image
+    source:
+      repository: aquasec/trivy
+      tag: latest
+
+  - name: gitleaks-image
+    type: registry-image
+    source:
+      repository: zricethezav/gitleaks
+      tag: latest
+
+  - name: node-image
+    type: registry-image
+    source:
+      repository: node
+      tag: 22-alpine
+
+jobs:
+  - name: security-scan-typescript
+    plan:
+      - get: source-code
+        trigger: true
+
+      # Semgrep SAST scanning
+      - task: semgrep-scan
+        image: semgrep-image
+        config:
+          platform: linux
+          inputs:
+            - name: source-code
+          outputs:
+            - name: semgrep-results
+          params:
+            SEMGREP_RULES: p/typescript p/nodejs
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                set -e
+                cd source-code
+
+                # Run semgrep with TypeScript and Node.js rulesets
+                semgrep scan \
+                  --config $SEMGREP_RULES \
+                  --config stacks/typescript/configs/.semgrep.yml \
+                  --sarif \
+                  --output ../semgrep-results/results.sarif \
+                  --severity ERROR \
+                  --severity WARNING \
+                  .
+
+                # Also output JSON for easier parsing
+                semgrep scan \
+                  --config $SEMGREP_RULES \
+                  --config stacks/typescript/configs/.semgrep.yml \
+                  --json \
+                  --output ../semgrep-results/results.json \
+                  .
+
+      # Trivy filesystem scanning
+      - task: trivy-scan
+        image: trivy-image
+        config:
+          platform: linux
+          inputs:
+            - name: source-code
+          outputs:
+            - name: trivy-results
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                set -e
+                cd source-code
+
+                # Scan filesystem for vulnerabilities
+                trivy fs \
+                  --config stacks/typescript/configs/trivy.yaml \
+                  --format json \
+                  --output ../trivy-results/fs-results.json \
+                  .
+
+                # Generate SARIF for integration
+                trivy fs \
+                  --config stacks/typescript/configs/trivy.yaml \
+                  --format sarif \
+                  --output ../trivy-results/fs-results.sarif \
+                  .
+
+      # Gitleaks secret scanning
+      - task: gitleaks-scan
+        image: gitleaks-image
+        config:
+          platform: linux
+          inputs:
+            - name: source-code
+          outputs:
+            - name: gitleaks-results
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                set -e
+                cd source-code
+
+                # Scan for secrets
+                gitleaks detect \
+                  --config ../shared/configs/gitleaks.toml \
+                  --report-format json \
+                  --report-path ../gitleaks-results/results.json \
+                  --no-git \
+                  --verbose \
+                  . || true
+
+                # Generate SARIF
+                gitleaks detect \
+                  --config ../shared/configs/gitleaks.toml \
+                  --report-format sarif \
+                  --report-path ../gitleaks-results/results.sarif \
+                  --no-git \
+                  . || true
+
+      # NPM audit for dependency vulnerabilities
+      - task: npm-audit
+        image: node-image
+        config:
+          platform: linux
+          inputs:
+            - name: source-code
+          outputs:
+            - name: npm-audit-results
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                set -e
+                cd source-code
+
+                # Run npm audit
+                npm audit --json > ../npm-audit-results/results.json || true
+
+                # Check for high/critical vulnerabilities
+                npm audit --audit-level=high || echo "High/critical vulnerabilities found"
+
+      # Aggregate and report results
+      - task: generate-report
+        image: node-image
+        config:
+          platform: linux
+          inputs:
+            - name: source-code
+            - name: semgrep-results
+            - name: trivy-results
+            - name: gitleaks-results
+            - name: npm-audit-results
+          outputs:
+            - name: security-report
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                set -e
+
+                # Create consolidated report
+                cat > security-report/summary.json <<EOF
+                {
+                  "timestamp": "$(date -Iseconds)",
+                  "scanners": {
+                    "semgrep": "semgrep-results/results.json",
+                    "trivy": "trivy-results/fs-results.json",
+                    "gitleaks": "gitleaks-results/results.json",
+                    "npm-audit": "npm-audit-results/results.json"
+                  },
+                  "sarif": {
+                    "semgrep": "semgrep-results/results.sarif",
+                    "trivy": "trivy-results/fs-results.sarif",
+                    "gitleaks": "gitleaks-results/results.sarif"
+                  }
+                }
+                EOF
+
+                echo "Security scan complete. Check artifacts for detailed results."

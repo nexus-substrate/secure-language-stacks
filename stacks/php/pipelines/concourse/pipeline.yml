@@ -1,0 +1,299 @@
+resources:
+  - name: source-code
+    type: git
+    icon: github
+    source:
+      uri: ((git.uri))
+      branch: ((git.branch))
+      private_key: ((git.private_key))
+
+  - name: vulnerability-db
+    type: time
+    icon: clock
+    source:
+      interval: 24h
+
+jobs:
+  - name: php-security-scan
+    plan:
+      - get: source-code
+        trigger: true
+      - get: vulnerability-db
+        trigger: true
+
+      - in_parallel:
+          fail_fast: true
+          steps:
+            # SAST - Semgrep
+            - task: semgrep-scan
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: returntocorp/semgrep
+                    tag: latest
+                inputs:
+                  - name: source-code
+                outputs:
+                  - name: semgrep-results
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      cd source-code
+                      semgrep scan \
+                        --config=stacks/php/configs/.semgrep.yml \
+                        --config=p/php \
+                        --config=p/security-audit \
+                        --sarif \
+                        --output=../semgrep-results/semgrep.sarif \
+                        --json-output=../semgrep-results/semgrep.json \
+                        .
+
+                      # Fail on findings
+                      if [ -s ../semgrep-results/semgrep.json ]; then
+                        jq '.results | length' ../semgrep-results/semgrep.json
+                        exit 1
+                      fi
+
+            # SAST - PHPStan
+            - task: phpstan-scan
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: php
+                    tag: 8.2-cli-alpine
+                inputs:
+                  - name: source-code
+                outputs:
+                  - name: phpstan-results
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      cd source-code
+
+                      # Install Composer
+                      php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+                      php composer-setup.php --quiet
+                      php -r "unlink('composer-setup.php');"
+
+                      # Install dependencies
+                      php composer.phar install --no-dev --optimize-autoloader
+
+                      # Install PHPStan
+                      php composer.phar require --dev phpstan/phpstan --with-all-dependencies
+
+                      # Run PHPStan
+                      ./vendor/bin/phpstan analyse \
+                        --configuration=stacks/php/configs/phpstan.neon \
+                        --error-format=json \
+                        --no-progress \
+                        > ../phpstan-results/phpstan.json || true
+
+                      # Check results
+                      if [ -s ../phpstan-results/phpstan.json ]; then
+                        jq '.totals.errors + .totals.file_errors' ../phpstan-results/phpstan.json
+                        exit 1
+                      fi
+
+            # SCA - Trivy filesystem scan
+            - task: trivy-sca-scan
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: aquasec/trivy
+                    tag: latest
+                inputs:
+                  - name: source-code
+                outputs:
+                  - name: trivy-sca-results
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      trivy fs \
+                        --config=source-code/stacks/php/configs/trivy.yaml \
+                        --scanners=vuln,misconfig \
+                        --format=json \
+                        --output=trivy-sca-results/trivy-sca.json \
+                        --severity=CRITICAL,HIGH,MEDIUM \
+                        source-code/
+
+                      # Fail on vulnerabilities
+                      vulns=$(jq '.Results[]?.Vulnerabilities // [] | length' trivy-sca-results/trivy-sca.json | awk '{sum+=$1} END {print sum}')
+                      if [ "$vulns" -gt 0 ]; then
+                        echo "Found $vulns vulnerabilities"
+                        exit 1
+                      fi
+
+            # SCA - Composer Audit
+            - task: composer-audit
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: php
+                    tag: 8.2-cli-alpine
+                inputs:
+                  - name: source-code
+                outputs:
+                  - name: composer-audit-results
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      cd source-code
+
+                      # Install Composer
+                      php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+                      php composer-setup.php --quiet
+                      php -r "unlink('composer-setup.php');"
+
+                      # Run audit
+                      php composer.phar audit \
+                        --format=json \
+                        --no-dev \
+                        > ../composer-audit-results/audit.json || true
+
+                      # Check for advisories
+                      advisories=$(jq '.advisories | length' ../composer-audit-results/audit.json)
+                      if [ "$advisories" -gt 0 ]; then
+                        echo "Found $advisories security advisories"
+                        jq '.advisories' ../composer-audit-results/audit.json
+                        exit 1
+                      fi
+
+            # Secrets Detection
+            - task: gitleaks-scan
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: zricethezav/gitleaks
+                    tag: latest
+                inputs:
+                  - name: source-code
+                outputs:
+                  - name: gitleaks-results
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      gitleaks detect \
+                        --source=source-code \
+                        --report-path=gitleaks-results/gitleaks.json \
+                        --report-format=json \
+                        --verbose \
+                        --exit-code=1
+
+      # Container Scanning (if Dockerfile present)
+      - task: check-dockerfile
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: alpine
+              tag: latest
+          inputs:
+            - name: source-code
+          outputs:
+            - name: build-context
+          run:
+            path: sh
+            args:
+              - -c
+              - |
+                if [ -f source-code/Dockerfile ]; then
+                  echo "Dockerfile found, container scanning enabled"
+                  touch build-context/has-dockerfile
+                else
+                  echo "No Dockerfile, skipping container scan"
+                fi
+
+      - task: trivy-container-scan
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: aquasec/trivy
+              tag: latest
+          inputs:
+            - name: source-code
+            - name: build-context
+          outputs:
+            - name: trivy-container-results
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                if [ ! -f build-context/has-dockerfile ]; then
+                  echo "Skipping container scan - no Dockerfile"
+                  exit 0
+                fi
+
+                # Build image
+                docker build -t php-app:scan source-code/
+
+                # Scan image
+                trivy image \
+                  --format=json \
+                  --output=trivy-container-results/trivy-image.json \
+                  --severity=CRITICAL,HIGH,MEDIUM \
+                  php-app:scan
+
+                # Fail on vulnerabilities
+                vulns=$(jq '.Results[]?.Vulnerabilities // [] | length' trivy-container-results/trivy-image.json | awk '{sum+=$1} END {print sum}')
+                if [ "$vulns" -gt 0 ]; then
+                  echo "Found $vulns image vulnerabilities"
+                  exit 1
+                fi
+
+      # Aggregate results
+      - task: aggregate-results
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: alpine
+              tag: latest
+          inputs:
+            - name: semgrep-results
+            - name: phpstan-results
+            - name: trivy-sca-results
+            - name: composer-audit-results
+            - name: gitleaks-results
+            - name: trivy-container-results
+          run:
+            path: sh
+            args:
+              - -c
+              - |
+                apk add --no-cache jq
+
+                echo "=== PHP Security Scan Results ==="
+                echo "Semgrep: $(jq '.results | length' semgrep-results/semgrep.json 2>/dev/null || echo '0') findings"
+                echo "PHPStan: $(jq '.totals.errors + .totals.file_errors' phpstan-results/phpstan.json 2>/dev/null || echo '0') errors"
+                echo "Trivy SCA: $(jq '.Results[]?.Vulnerabilities // [] | length' trivy-sca-results/trivy-sca.json 2>/dev/null | awk '{sum+=$1} END {print sum}' || echo '0') vulnerabilities"
+                echo "Composer Audit: $(jq '.advisories | length' composer-audit-results/audit.json 2>/dev/null || echo '0') advisories"
+                echo "Gitleaks: $(jq '. | length' gitleaks-results/gitleaks.json 2>/dev/null || echo '0') secrets"
+
+                if [ -f trivy-container-results/trivy-image.json ]; then
+                  echo "Trivy Container: $(jq '.Results[]?.Vulnerabilities // [] | length' trivy-container-results/trivy-image.json | awk '{sum+=$1} END {print sum}') image vulnerabilities"
+                fi

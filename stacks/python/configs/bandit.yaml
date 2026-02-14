@@ -1,0 +1,91 @@
+# Bandit Configuration for Python Security Scanning
+# https://bandit.readthedocs.io/en/latest/config.html
+
+# Tests to skip (known false positives or context-specific)
+skips:
+  # B101: assert_used - Common in tests
+  - B101
+  # B601: paramiko_calls - If using paramiko intentionally
+  # - B601
+
+# Test IDs to include (empty means all)
+tests: []
+
+# Exclude paths
+exclude_dirs:
+  - /test
+  - /tests
+  - /.venv
+  - /venv
+  - /.tox
+  - /build
+  - /dist
+
+# Confidence levels: LOW, MEDIUM, HIGH
+# Only report issues with confidence >= MEDIUM
+min_confidence: MEDIUM
+
+# Severity levels: LOW, MEDIUM, HIGH
+# Report all severities
+severity: LOW
+
+# Plugin configuration
+plugins:
+  # Enable all built-in plugins
+  - name: blacklist
+
+# Bandit checks (representative subset)
+# B201-B205: Flask security issues
+# B301-B324: Injection vulnerabilities
+# B401-B413: Cryptographic issues
+# B501-B507: Certificate validation
+# B601-B612: Shell injection
+# B701-B703: Jinja2 issues
+
+# Custom blacklist for insecure functions
+blacklist:
+  calls:
+    # Insecure deserialization
+    pickle.loads:
+      message: "Avoid pickle.loads with untrusted data (CWE-502)"
+      level: HIGH
+    yaml.load:
+      message: "Use yaml.safe_load instead of yaml.load (CWE-502)"
+      level: HIGH
+
+    # Command injection
+    os.system:
+      message: "Avoid os.system, use subprocess with shell=False (CWE-78)"
+      level: HIGH
+    eval:
+      message: "Avoid eval with untrusted input (CWE-95)"
+      level: HIGH
+    exec:
+      message: "Avoid exec with untrusted input (CWE-95)"
+      level: HIGH
+
+    # Insecure random
+    random.random:
+      message: "Use secrets module for cryptographic randomness (CWE-338)"
+      level: MEDIUM
+    random.randint:
+      message: "Use secrets module for cryptographic randomness (CWE-338)"
+      level: MEDIUM
+
+  imports:
+    # Insecure modules
+    pickle:
+      message: "Consider safer serialization formats like JSON"
+      level: MEDIUM
+    cPickle:
+      message: "Consider safer serialization formats like JSON"
+      level: MEDIUM
+
+# Output format: json, csv, txt, html
+format: json
+
+# Show only issues (suppress INFO/DEBUG)
+quiet: false
+
+# Aggregate output by filename
+aggregate: file

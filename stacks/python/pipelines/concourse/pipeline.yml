@@ -1,0 +1,221 @@
+resources:
+  - name: source-code
+    type: git
+    icon: github
+    source:
+      uri: ((git-uri))
+      branch: ((git-branch))
+      private_key: ((git-private-key))
+
+  - name: semgrep-image
+    type: registry-image
+    icon: docker
+    source:
+      repository: returntocorp/semgrep
+      tag: latest
+
+  - name: trivy-image
+    type: registry-image
+    icon: docker
+    source:
+      repository: aquasec/trivy
+      tag: latest
+
+  - name: gitleaks-image
+    type: registry-image
+    icon: docker
+    source:
+      repository: zricethezav/gitleaks
+      tag: latest
+
+  - name: bandit-image
+    type: registry-image
+    icon: docker
+    source:
+      repository: python
+      tag: 3.11-slim
+
+jobs:
+  - name: security-scan
+    plan:
+      - in_parallel:
+          - get: source-code
+            trigger: true
+          - get: semgrep-image
+          - get: trivy-image
+          - get: gitleaks-image
+          - get: bandit-image
+
+      - in_parallel:
+          fail_fast: false
+          steps:
+            # SAST: Semgrep
+            - task: semgrep-scan
+              image: semgrep-image
+              config:
+                platform: linux
+                inputs:
+                  - name: source-code
+                outputs:
+                  - name: semgrep-results
+                run:
+                  path: /bin/sh
+                  args:
+                    - -c
+                    - |
+                      cd source-code
+                      semgrep --config stacks/python/configs/.semgrep.yml \
+                              --config p/python \
+                              --config p/django \
+                              --config p/flask \
+                              --json --output ../semgrep-results/results.json . || true
+
+                      # Check for high/critical findings
+                      if grep -q '"severity": "ERROR"' ../semgrep-results/results.json; then
+                        echo "Critical SAST findings detected"
+                        exit 1
+                      fi
+
+            # SAST: Bandit
+            - task: bandit-scan
+              image: bandit-image
+              config:
+                platform: linux
+                inputs:
+                  - name: source-code
+                outputs:
+                  - name: bandit-results
+                run:
+                  path: /bin/sh
+                  args:
+                    - -c
+                    - |
+                      cd source-code
+                      pip install bandit[toml] --quiet
+                      bandit -r . \
+                             -c stacks/python/configs/bandit.yaml \
+                             -f json \
+                             -o ../bandit-results/results.json || true
+
+                      # Check for high confidence issues
+                      if grep -q '"issue_confidence": "HIGH"' ../bandit-results/results.json; then
+                        echo "High-confidence security issues detected"
+                        exit 1
+                      fi
+
+            # SCA: Trivy
+            - task: trivy-scan
+              image: trivy-image
+              config:
+                platform: linux
+                inputs:
+                  - name: source-code
+                outputs:
+                  - name: trivy-results
+                run:
+                  path: /bin/sh
+                  args:
+                    - -c
+                    - |
+                      cd source-code
+                      trivy fs --config stacks/python/configs/trivy.yaml \
+                               --format json \
+                               --output ../trivy-results/results.json . || true
+
+                      # Check for critical vulnerabilities
+                      if grep -q '"Severity": "CRITICAL"' ../trivy-results/results.json; then
+                        echo "Critical vulnerabilities detected"
+                        exit 1
+                      fi
+
+            # SCA: pip-audit
+            - task: pip-audit-scan
+              image: bandit-image
+              config:
+                platform: linux
+                inputs:
+                  - name: source-code
+                outputs:
+                  - name: pip-audit-results
+                run:
+                  path: /bin/sh
+                  args:
+                    - -c
+                    - |
+                      cd source-code
+                      pip install pip-audit --quiet
+
+                      # Scan all requirements files
+                      for req_file in requirements.txt requirements/*.txt; do
+                        if [ -f "$req_file" ]; then
+                          pip-audit -r "$req_file" \
+                                    --format json \
+                                    --output "../pip-audit-results/$(basename $req_file).json" || true
+                        fi
+                      done
+
+            # Secrets: Gitleaks
+            - task: gitleaks-scan
+              image: gitleaks-image
+              config:
+                platform: linux
+                inputs:
+                  - name: source-code
+                outputs:
+                  - name: gitleaks-results
+                run:
+                  path: /bin/sh
+                  args:
+                    - -c
+                    - |
+                      cd source-code
+                      gitleaks detect \
+                               --config ../shared/gitleaks.toml \
+                               --report-format json \
+                               --report-path ../gitleaks-results/results.json \
+                               --no-git || true
+
+                      # Check for leaked secrets
+                      if [ -s ../gitleaks-results/results.json ]; then
+                        echo "Secrets detected in source code"
+                        exit 1
+                      fi
+
+      # Aggregate results
+      - task: aggregate-results
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: python
+              tag: 3.11-slim
+          inputs:
+            - name: semgrep-results
+            - name: bandit-results
+            - name: trivy-results
+            - name: pip-audit-results
+            - name: gitleaks-results
+          outputs:
+            - name: security-report
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                pip install jq --quiet || true
+
+                # Create summary report
+                cat > security-report/summary.json <<EOF
+                {
+                  "timestamp": "$(date -Iseconds)",
+                  "scans": {
+                    "semgrep": "$(cat semgrep-results/results.json | wc -l) findings",
+                    "bandit": "$(cat bandit-results/results.json | wc -l) findings",
+                    "trivy": "$(cat trivy-results/results.json | wc -l) findings",
+                    "gitleaks": "$(cat gitleaks-results/results.json | wc -l) findings"
+                  }
+                }
+                EOF
+
+                cat security-report/summary.json

@@ -1,0 +1,71 @@
+severity:
+  - CRITICAL
+  - HIGH
+  - MEDIUM
+
+scan:
+  security-checks:
+    - vuln
+    - config
+    - secret
+
+vulnerability:
+  type:
+    - os
+    - library
+  ignore-unfixed: false
+
+format: json
+exit-code: 1
+
+# PHP-specific scanner configuration
+scanners:
+  - vuln
+  - misconfig
+  - secret
+
+# Composer lock file scanning
+file-patterns:
+  - composer.lock
+
+# Ignore development dependencies in production scans
+ignore-dev-dependencies: true
+
+# Severity filtering
+min-severity: MEDIUM
+
+# Output template
+template: |
+  {
+    "vulnerabilities": {{ marshal .Results }},
+    "metadata": {
+      "scanner": "trivy",
+      "timestamp": "{{ now }}",
+      "target": "{{ .ArtifactName }}"
+    }
+  }
+
+# Database configuration
+db:
+  repository: ghcr.io/aquasecurity/trivy-db
+  skip-update: false
+
+# Cache configuration
+cache:
+  backend: fs
+  ttl: 72h
+
+# Compliance checks
+compliance:
+  - owasp-top-10
+  - cwe-top-25
+
+# PHP-specific misconfigurations
+misconfig:
+  include-non-failures: false
+  checks:
+    - php-ini-expose-php
+    - php-ini-display-errors
+    - php-ini-allow-url-fopen
+    - php-ini-allow-url-include
+    - composer-lock-missing

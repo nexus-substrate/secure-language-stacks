@@ -1,0 +1,237 @@
+# Trivy Configuration for Kotlin Projects
+# Supports Gradle and Maven dependency scanning
+
+# Scan settings
+scan:
+  # Vulnerability databases to use
+  security-checks:
+    - vuln
+    - config
+    - secret
+
+  # Skip files/directories
+  skip-dirs:
+    - "**/.git"
+    - "**/node_modules"
+    - "**/build"
+    - "**/target"
+    - "**/.gradle"
+    - "**/.m2"
+    - "**/test"
+    - "**/androidTest"
+
+  # Skip specific files
+  skip-files:
+    - "**/*_test.kt"
+    - "**/*Test.kt"
+    - "**/*Tests.kt"
+
+# Vulnerability settings
+vulnerability:
+  # Vulnerability types to detect
+  type:
+    - os
+    - library
+
+  # Severity levels to report (CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN)
+  severity:
+    - CRITICAL
+    - HIGH
+    - MEDIUM
+
+  # Ignore unfixed vulnerabilities
+  ignore-unfixed: false
+
+  # VEX (Vulnerability Exploitability eXchange) settings
+  vex:
+    enabled: false
+
+# Package managers to scan
+pkg:
+  # Gradle
+  gradle:
+    enabled: true
+    # Lock file paths
+    lock-files:
+      - "**/gradle.lockfile"
+      - "**/gradle/dependency-locks/*.lockfile"
+
+  # Maven
+  maven:
+    enabled: true
+    # POM file paths
+    pom-files:
+      - "**/pom.xml"
+
+# Secret scanning settings
+secret:
+  # Secret types to detect
+  config: /path/to/secret/config.yaml
+
+  # Exclude secret scan for specific paths
+  exclude-paths:
+    - "**/*.md"
+    - "**/LICENSE"
+    - "**/build.gradle.kts"
+    - "**/settings.gradle.kts"
+
+# Misconfiguration scanning
+misconfig:
+  # Include checks for IaC files
+  include-non-failures: false
+
+  # Severity threshold
+  severity:
+    - CRITICAL
+    - HIGH
+    - MEDIUM
+
+  # Terraform/Kubernetes manifests (if applicable)
+  helm-values: []
+  terraform-vars: []
+
+# License scanning
+license:
+  # Enable license scanning
+  enabled: false
+
+  # License types to flag
+  forbidden:
+    - GPL-2.0
+    - GPL-3.0
+    - AGPL-3.0
+
+  # Ignored licenses
+  ignored:
+    - Apache-2.0
+    - MIT
+    - BSD-3-Clause
+
+# Output settings
+output:
+  # Format: table, json, sarif, cyclonedx, spdx
+  format: table
+
+  # Template for custom output
+  template: ""
+
+  # Severity threshold for exit code (CRITICAL, HIGH, MEDIUM, LOW)
+  exit-code-severity: HIGH
+
+  # Exit code when vulnerabilities are found
+  exit-code: 1
+
+# Database settings
+db:
+  # Skip database update
+  skip-update: false
+
+  # Database repository
+  repository: ghcr.io/aquasecurity/trivy-db
+
+# Cache settings
+cache:
+  # Cache directory
+  dir: /tmp/trivy-cache
+
+  # Clear cache before scanning
+  clear: false
+
+# Timeout settings
+timeout:
+  # Overall scan timeout
+  scan: 5m
+
+  # Server timeout (for client/server mode)
+  server: 5m
+
+# Ignore file
+ignorefile: .trivyignore
+
+# Custom policies directory (for Rego policies)
+policy:
+  # Path to custom policies
+  policy-paths:
+    - ./trivy-policies
+
+  # Namespaces to use
+  namespaces:
+    - user
+
+# Compliance reports
+compliance:
+  # Compliance standards to check (e.g., CIS, PCI-DSS)
+  spec: []
+
+# Kubernetes-specific settings (for Android/Kotlin apps with K8s deployment)
+kubernetes:
+  # Namespace to scan
+  namespace: ""
+
+  # Components to scan
+  components:
+    - pod
+    - service
+    - deployment
+
+# Container image scanning (for Dockerized Kotlin apps)
+image:
+  # Image reference
+  reference: ""
+
+  # Platform (for multi-arch images)
+  platform: linux/amd64
+
+  # Docker config for private registries
+  docker-config: ~/.docker/config.json
+
+  # Skip image pulling
+  skip-pull: false
+
+# File system scanning
+fs:
+  # Root path for scanning
+  scanners:
+    - vuln
+    - secret
+    - misconfig
+
+# Integration with CI/CD
+ci:
+  # Exit code when no vulnerabilities found
+  success-exit-code: 0
+
+  # Fail on specific severity
+  fail-on-severity: HIGH
+
+# Java-specific settings (Kotlin runs on JVM)
+java:
+  # Update Java DB
+  db-repository: ghcr.io/aquasecurity/trivy-java-db
+
+  # Offline mode
+  offline-scan: false
+
+# Gradle-specific overrides
+gradle:
+  # Configuration to scan (e.g., runtimeClasspath, compileClasspath)
+  configurations:
+    - runtimeClasspath
+    - compileClasspath
+
+  # Exclude test configurations
+  exclude-test-configs: true
+
+  # Parallel scanning
+  parallel: 5
+
+# Android-specific settings
+android:
+  # APK/AAB scanning
+  enabled: true
+
+  # SDK path (if scanning Android builds)
+  sdk-path: $ANDROID_HOME
+
+  # Build variant to scan
+  build-variant: release

@@ -1,0 +1,259 @@
+---
+resource_types:
+  - name: pull-request
+    type: registry-image
+    source:
+      repository: teliaoss/github-pr-resource
+
+resources:
+  - name: repo
+    type: git
+    icon: github
+    source:
+      uri: ((git-uri))
+      branch: ((git-branch))
+      private_key: ((git-private-key))
+
+  - name: pull-request
+    type: pull-request
+    icon: source-pull
+    source:
+      repository: ((github-repository))
+      access_token: ((github-access-token))
+
+jobs:
+  - name: security-scan
+    plan:
+      - in_parallel:
+          - get: repo
+            trigger: true
+          - get: pull-request
+            trigger: true
+            version: every
+
+      - in_parallel:
+          fail_fast: true
+          steps:
+            # SAST - Semgrep
+            - task: semgrep-scan
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: returntocorp/semgrep
+                inputs:
+                  - name: repo
+                run:
+                  path: sh
+                  args:
+                    - -ec
+                    - |
+                      cd repo
+                      semgrep scan \
+                        --config=stacks/cpp/configs/.semgrep.yml \
+                        --config=p/c \
+                        --error \
+                        --verbose \
+                        --metrics=off \
+                        --output=../semgrep-results.json \
+                        --json \
+                        .
+
+                      # Also generate SARIF for GitHub integration
+                      semgrep scan \
+                        --config=stacks/cpp/configs/.semgrep.yml \
+                        --config=p/c \
+                        --sarif \
+                        --output=../semgrep-results.sarif \
+                        .
+                outputs:
+                  - name: semgrep-results
+
+            # SAST - Cppcheck
+            - task: cppcheck-scan
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: neszt/cppcheck-docker
+                    tag: latest
+                inputs:
+                  - name: repo
+                run:
+                  path: sh
+                  args:
+                    - -ec
+                    - |
+                      cd repo
+                      cppcheck \
+                        --enable=warning,style,performance,portability \
+                        --error-exitcode=1 \
+                        --xml \
+                        --xml-version=2 \
+                        --output-file=../cppcheck-results.xml \
+                        --suppress=*:*/test/* \
+                        --suppress=*:*/tests/* \
+                        --suppress=*:*/third_party/* \
+                        --verbose \
+                        src/
+
+                      # Convert to human-readable format
+                      cppcheck \
+                        --enable=warning,style,performance,portability \
+                        --suppress=*:*/test/* \
+                        --suppress=*:*/tests/* \
+                        --suppress=*:*/third_party/* \
+                        src/ 2>&1 | tee ../cppcheck-results.txt
+                outputs:
+                  - name: cppcheck-results
+
+            # SCA - Trivy filesystem scan
+            - task: trivy-fs-scan
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: aquasec/trivy
+                    tag: latest
+                inputs:
+                  - name: repo
+                run:
+                  path: sh
+                  args:
+                    - -ec
+                    - |
+                      cd repo
+                      trivy fs \
+                        --config=stacks/cpp/configs/trivy.yaml \
+                        --severity CRITICAL,HIGH,MEDIUM \
+                        --exit-code 1 \
+                        --format json \
+                        --output ../trivy-fs-results.json \
+                        .
+
+                      # Also generate table format
+                      trivy fs \
+                        --config=stacks/cpp/configs/trivy.yaml \
+                        --severity CRITICAL,HIGH,MEDIUM \
+                        --format table \
+                        . | tee ../trivy-fs-results.txt
+                outputs:
+                  - name: trivy-fs-results
+
+            # Secrets scanning - Gitleaks
+            - task: gitleaks-scan
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: zricethezav/gitleaks
+                    tag: latest
+                inputs:
+                  - name: repo
+                run:
+                  path: sh
+                  args:
+                    - -ec
+                    - |
+                      cd repo
+                      gitleaks detect \
+                        --config=../../shared/configs/gitleaks.toml \
+                        --report-path=../gitleaks-results.json \
+                        --report-format=json \
+                        --verbose \
+                        --exit-code=1 \
+                        --redact \
+                        --no-git
+                outputs:
+                  - name: gitleaks-results
+
+      # Aggregate results
+      - task: aggregate-results
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: alpine
+              tag: latest
+          inputs:
+            - name: semgrep-results
+            - name: cppcheck-results
+            - name: trivy-fs-results
+            - name: gitleaks-results
+          run:
+            path: sh
+            args:
+              - -ec
+              - |
+                echo "Security Scan Results Summary"
+                echo "=============================="
+                echo ""
+
+                echo "Semgrep (SAST):"
+                if [ -f semgrep-results/semgrep-results.json ]; then
+                  cat semgrep-results/semgrep-results.json | grep -o '"errors":\[[^]]*\]' || echo "No issues found"
+                fi
+                echo ""
+
+                echo "Cppcheck (SAST):"
+                if [ -f cppcheck-results/cppcheck-results.txt ]; then
+                  cat cppcheck-results/cppcheck-results.txt | head -20
+                fi
+                echo ""
+
+                echo "Trivy (SCA):"
+                if [ -f trivy-fs-results/trivy-fs-results.txt ]; then
+                  cat trivy-fs-results/trivy-fs-results.txt | head -20
+                fi
+                echo ""
+
+                echo "Gitleaks (Secrets):"
+                if [ -f gitleaks-results/gitleaks-results.json ]; then
+                  cat gitleaks-results/gitleaks-results.json | grep -o '"Description":"[^"]*"' || echo "No secrets found"
+                fi
+
+  - name: container-security-scan
+    plan:
+      - get: repo
+        trigger: true
+        passed: [security-scan]
+
+      - task: trivy-image-scan
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: aquasec/trivy
+              tag: latest
+          inputs:
+            - name: repo
+          params:
+            IMAGE_NAME: ((docker-image-name))
+            IMAGE_TAG: ((docker-image-tag))
+          run:
+            path: sh
+            args:
+              - -ec
+              - |
+                # Scan Docker image if it exists
+                if docker image inspect ${IMAGE_NAME}:${IMAGE_TAG} >/dev/null 2>&1; then
+                  trivy image \
+                    --severity CRITICAL,HIGH,MEDIUM \
+                    --exit-code 1 \
+                    --format json \
+                    --output trivy-image-results.json \
+                    ${IMAGE_NAME}:${IMAGE_TAG}
+
+                  trivy image \
+                    --severity CRITICAL,HIGH,MEDIUM \
+                    --format table \
+                    ${IMAGE_NAME}:${IMAGE_TAG}
+                else
+                  echo "Image ${IMAGE_NAME}:${IMAGE_TAG} not found, skipping scan"
+                fi

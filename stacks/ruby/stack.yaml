@@ -1,0 +1,32 @@
+name: ruby
+displayName: Ruby
+category: interpreted
+packageManagers: [bundler, rubygems]
+buildTools: [rake]
+frameworks: [rails, sinatra, hanami, grape]
+scanners:
+  sast:
+    - name: semgrep
+      rulesets: [p/ruby]
+      config: configs/.semgrep.yml
+    - name: brakeman
+      config: configs/brakeman.yml
+  sca:
+    - name: trivy
+      scanType: fs
+      config: configs/trivy.yaml
+    - name: bundler-audit
+  secrets:
+    - name: gitleaks
+      config: shared
+  dast:
+    - name: zap
+      applicableTo: [rails, sinatra, hanami, grape]
+  container:
+    - name: trivy
+      scanType: image
+ciTemplates:
+  concourse: pipelines/concourse/pipeline.yml
+  githubActions: pipelines/github-actions/security.yml
+skill: skills/secure-ruby.md
+compliance: [owasp-top-10, cwe-top-25]

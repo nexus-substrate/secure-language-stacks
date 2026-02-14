@@ -1,0 +1,27 @@
+name: hcl
+displayName: HCL
+category: infrastructure
+packageManagers: [terraform-registry]
+buildTools: [terraform, opentofu, terragrunt]
+frameworks: [aws, azure, gcp, kubernetes]
+scanners:
+  sast:
+    - name: semgrep
+      rulesets: [p/terraform]
+      config: configs/.semgrep.yml
+    - name: tfsec
+      config: configs/tfsec.yml
+  sca:
+    - name: trivy
+      scanType: fs
+      config: configs/trivy.yaml
+  secrets:
+    - name: gitleaks
+      config: shared
+  dast: []
+  container: []
+ciTemplates:
+  concourse: pipelines/concourse/pipeline.yml
+  githubActions: pipelines/github-actions/security.yml
+skill: skills/secure-hcl.md
+compliance: [owasp-top-10, cwe-top-25]

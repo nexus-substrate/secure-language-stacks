@@ -1,0 +1,133 @@
+# Trivy Configuration for Java Projects
+# Scans both filesystem dependencies and container images
+
+format: json
+output: trivy-report.json
+
+# Vulnerability scanning options
+severity:
+  - CRITICAL
+  - HIGH
+  - MEDIUM
+
+# Scan targets
+scan:
+  # Filesystem scan for Maven/Gradle dependencies
+  - type: fs
+    target: .
+    scanners:
+      - vuln
+      - secret
+      - misconfig
+
+  # Container image scan (if applicable)
+  - type: image
+    scanners:
+      - vuln
+      - secret
+      - config
+
+# Vulnerability database
+db:
+  repository: ghcr.io/aquasecurity/trivy-db
+  skip-update: false
+
+# Ignore unfixed vulnerabilities (optional, set to false for stricter policy)
+ignore-unfixed: false
+
+# Exit code configuration
+exit-code: 1  # Fail CI if vulnerabilities found
+
+# Timeout configuration
+timeout: 10m
+
+# Cache configuration
+cache:
+  dir: .trivy-cache
+
+# Skip files/directories
+skip-dirs:
+  - target/
+  - build/
+  - .git/
+  - node_modules/
+
+skip-files:
+  - "**/*.md"
+  - "**/*.txt"
+  - "**/LICENSE"
+
+# Java-specific scanners
+java:
+  # Maven dependency scanning
+  maven:
+    enabled: true
+    # Scan both pom.xml and effective-pom.xml
+    pom-path: pom.xml
+
+  # Gradle dependency scanning
+  gradle:
+    enabled: true
+    # Lock file scanning for reproducible builds
+    lockfile-path: gradle.lock
+
+# Secret scanning configuration
+secret:
+  config: |
+    rules:
+      - id: aws-access-key
+        regex: "AKIA[0-9A-Z]{16}"
+        severity: CRITICAL
+      - id: aws-secret-key
+        regex: "['\"][0-9a-zA-Z/+=]{40}['\"]"
+        severity: CRITICAL
+      - id: github-token
+        regex: "gh[pousr]_[0-9a-zA-Z]{36}"
+        severity: CRITICAL
+      - id: private-key
+        regex: "-----BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY-----"
+        severity: CRITICAL
+      - id: jdbc-url-with-credentials
+        regex: "jdbc:[^:]+://[^:]+:[^@]+@"
+        severity: HIGH
+
+# Misconfiguration scanning (Docker, Kubernetes, Terraform)
+misconfig:
+  include-non-failures: false
+  severity:
+    - CRITICAL
+    - HIGH
+
+# License scanning (optional)
+license:
+  full: false
+  ignored:
+    - MIT
+    - Apache-2.0
+    - BSD-3-Clause
+
+# SBOM generation (optional)
+sbom:
+  format: cyclonedx
+  output: trivy-sbom.json
+
+# Custom policies (optional)
+policy:
+  # Example: Block specific CVEs
+  ignore:
+    # Add CVE IDs to ignore (with justification in comments)
+    # - CVE-2021-12345  # False positive for test dependency
+
+# Reporting
+report:
+  format: json
+  summary: true
+  list-all-packages: false
+
+# Compliance
+compliance:
+  # Map to compliance frameworks
+  spec:
+    id: owasp-top-10
+    title: OWASP Top 10 2021
+    version: "2021"

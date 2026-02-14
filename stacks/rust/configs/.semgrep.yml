@@ -1,0 +1,230 @@
+rules:
+  # Unsafe code detection
+  - id: unsafe-block-audit
+    pattern: unsafe { ... }
+    message: Unsafe block detected - requires security review
+    severity: WARNING
+    languages: [rust]
+    metadata:
+      cwe: CWE-119
+      category: security
+      subcategory: [audit]
+      confidence: HIGH
+
+  # Unchecked unwrap/expect
+  - id: unchecked-unwrap
+    patterns:
+      - pattern-either:
+          - pattern: $X.unwrap()
+          - pattern: $X.expect(...)
+      - pattern-not-inside: |
+          #[cfg(test)]
+          ...
+    message: Unchecked unwrap/expect can cause panic - use proper error handling
+    severity: WARNING
+    languages: [rust]
+    metadata:
+      cwe: CWE-754
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+
+  # SQL injection via format
+  - id: sql-injection-format
+    patterns:
+      - pattern-either:
+          - pattern: format!("SELECT ... {}", $VAR)
+          - pattern: format!("INSERT ... {}", $VAR)
+          - pattern: format!("UPDATE ... {}", $VAR)
+          - pattern: format!("DELETE ... {}", $VAR)
+    message: Potential SQL injection - use parameterized queries
+    severity: ERROR
+    languages: [rust]
+    metadata:
+      cwe: CWE-89
+      owasp: A03:2021
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+
+  # Command injection
+  - id: command-injection
+    patterns:
+      - pattern-either:
+          - pattern: Command::new($CMD).arg(format!(..., $VAR))
+          - pattern: Command::new(format!(..., $VAR))
+      - pattern-not: Command::new($CONST).arg(...)
+    message: Potential command injection - validate and sanitize inputs
+    severity: ERROR
+    languages: [rust]
+    metadata:
+      cwe: CWE-78
+      owasp: A03:2021
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+
+  # Path traversal
+  - id: path-traversal
+    patterns:
+      - pattern-either:
+          - pattern: Path::new($INPUT)
+          - pattern: PathBuf::from($INPUT)
+      - pattern-not-inside: |
+          let $SANITIZED = canonicalize(...);
+          ...
+      - metavariable-pattern:
+          metavariable: $INPUT
+          patterns:
+            - pattern-not: |
+                "..."
+    message: Potential path traversal - canonicalize and validate paths
+    severity: WARNING
+    languages: [rust]
+    metadata:
+      cwe: CWE-22
+      owasp: A01:2021
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+
+  # Hardcoded secrets
+  - id: hardcoded-secret
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const $VAR: &str = "...";
+          - pattern: |
+              let $VAR = "...";
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: (?i)(password|secret|token|api_?key|private_?key)
+    message: Potential hardcoded secret - use environment variables or secret management
+    severity: ERROR
+    languages: [rust]
+    metadata:
+      cwe: CWE-798
+      owasp: A02:2021
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+
+  # Weak cryptography - MD5/SHA1
+  - id: weak-crypto-hash
+    patterns:
+      - pattern-either:
+          - pattern: Md5::new()
+          - pattern: Sha1::new()
+    message: Weak cryptographic hash function - use SHA-256 or stronger
+    severity: ERROR
+    languages: [rust]
+    metadata:
+      cwe: CWE-327
+      owasp: A02:2021
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+
+  # Insecure randomness
+  - id: insecure-random
+    patterns:
+      - pattern: rand::random()
+      - pattern-not-inside: |
+          use rand::rngs::OsRng;
+          ...
+    message: Using non-cryptographic RNG - use OsRng for security-sensitive operations
+    severity: WARNING
+    languages: [rust]
+    metadata:
+      cwe: CWE-338
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+
+  # Deserialization of untrusted data
+  - id: unsafe-deserialization
+    patterns:
+      - pattern-either:
+          - pattern: serde_json::from_str($UNTRUSTED)
+          - pattern: bincode::deserialize($UNTRUSTED)
+      - pattern-not-inside: |
+          if validate($UNTRUSTED) { ... }
+    message: Deserializing untrusted data - validate input structure and types
+    severity: WARNING
+    languages: [rust]
+    metadata:
+      cwe: CWE-502
+      owasp: A08:2021
+      category: security
+      subcategory: [vuln]
+      confidence: LOW
+
+  # Integer overflow in arithmetic
+  - id: integer-overflow-risk
+    patterns:
+      - pattern-either:
+          - pattern: $X + $Y
+          - pattern: $X * $Y
+      - pattern-not-inside: |
+          $X.checked_add(...)
+      - pattern-not-inside: |
+          $X.saturating_add(...)
+      - pattern-not-inside: |
+          #[cfg(test)]
+          ...
+      - metavariable-type:
+          metavariable: $X
+          types:
+            - u8
+            - u16
+            - u32
+            - u64
+            - u128
+            - usize
+            - i8
+            - i16
+            - i32
+            - i64
+            - i128
+            - isize
+    message: Potential integer overflow - use checked/saturating arithmetic
+    severity: WARNING
+    languages: [rust]
+    metadata:
+      cwe: CWE-190
+      category: security
+      subcategory: [vuln]
+      confidence: LOW
+
+  # Raw pointer dereferencing
+  - id: raw-pointer-deref
+    pattern: |
+      unsafe {
+        ...*$PTR...
+      }
+    message: Raw pointer dereference - ensure pointer validity and alignment
+    severity: WARNING
+    languages: [rust]
+    metadata:
+      cwe: CWE-476
+      category: security
+      subcategory: [audit]
+      confidence: HIGH
+
+  # FFI function calls
+  - id: ffi-call-audit
+    patterns:
+      - pattern: |
+          unsafe {
+            ...$FUNC(...)...
+          }
+      - pattern-not-inside: |
+          extern "C" { ... }
+    message: FFI call detected - audit memory safety and data validation
+    severity: WARNING
+    languages: [rust]
+    metadata:
+      cwe: CWE-242
+      category: security
+      subcategory: [audit]
+      confidence: MEDIUM

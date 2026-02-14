@@ -1,0 +1,214 @@
+resources:
+  - name: source-code
+    type: git
+    icon: github
+    source:
+      uri: ((git-uri))
+      branch: ((git-branch))
+      private_key: ((git-private-key))
+
+  - name: security-report
+    type: s3
+    icon: aws
+    source:
+      bucket: ((s3-bucket))
+      region_name: ((s3-region))
+      access_key_id: ((s3-access-key))
+      secret_access_key: ((s3-secret-key))
+      regexp: security-reports/javascript-(.*).json
+
+jobs:
+  - name: sast-semgrep
+    plan:
+      - get: source-code
+        trigger: true
+      - task: run-semgrep
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: returntocorp/semgrep
+              tag: latest
+          inputs:
+            - name: source-code
+          outputs:
+            - name: semgrep-results
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                cd source-code
+                semgrep --config=p/javascript \
+                        --config=p/nodejs \
+                        --config=stacks/javascript/configs/.semgrep.yml \
+                        --json \
+                        --output=../semgrep-results/semgrep.json \
+                        .
+                cat ../semgrep-results/semgrep.json
+      - put: security-report
+        params:
+          file: semgrep-results/semgrep.json
+          acl: private
+
+  - name: sast-eslint
+    plan:
+      - get: source-code
+        trigger: true
+        passed: [sast-semgrep]
+      - task: run-eslint-security
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: node
+              tag: 20-alpine
+          inputs:
+            - name: source-code
+          outputs:
+            - name: eslint-results
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                cd source-code
+                npm install -g eslint eslint-plugin-security
+                eslint --config stacks/javascript/configs/eslint-security.json \
+                       --format json \
+                       --output-file ../eslint-results/eslint.json \
+                       . || true
+                cat ../eslint-results/eslint.json
+      - put: security-report
+        params:
+          file: eslint-results/eslint.json
+          acl: private
+
+  - name: sca-trivy
+    plan:
+      - get: source-code
+        trigger: true
+        passed: [sast-eslint]
+      - task: run-trivy-fs
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: aquasec/trivy
+              tag: latest
+          inputs:
+            - name: source-code
+          outputs:
+            - name: trivy-results
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                cd source-code
+                trivy fs --config stacks/javascript/configs/trivy.yaml \
+                         --format json \
+                         --output ../trivy-results/trivy.json \
+                         .
+                cat ../trivy-results/trivy.json
+      - put: security-report
+        params:
+          file: trivy-results/trivy.json
+          acl: private
+
+  - name: sca-npm-audit
+    plan:
+      - get: source-code
+        trigger: true
+        passed: [sca-trivy]
+      - task: run-npm-audit
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: node
+              tag: 20-alpine
+          inputs:
+            - name: source-code
+          outputs:
+            - name: npm-audit-results
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                cd source-code
+                npm audit --json > ../npm-audit-results/npm-audit.json || true
+                cat ../npm-audit-results/npm-audit.json
+      - put: security-report
+        params:
+          file: npm-audit-results/npm-audit.json
+          acl: private
+
+  - name: secrets-gitleaks
+    plan:
+      - get: source-code
+        trigger: true
+      - task: run-gitleaks
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: zricethezav/gitleaks
+              tag: latest
+          inputs:
+            - name: source-code
+          outputs:
+            - name: gitleaks-results
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                cd source-code
+                gitleaks detect --config ../shared/gitleaks.toml \
+                                --report-format json \
+                                --report-path ../gitleaks-results/gitleaks.json \
+                                --no-git \
+                                --verbose || true
+                cat ../gitleaks-results/gitleaks.json
+      - put: security-report
+        params:
+          file: gitleaks-results/gitleaks.json
+          acl: private
+
+  - name: aggregate-report
+    plan:
+      - get: source-code
+        trigger: true
+        passed: [sast-semgrep, sast-eslint, sca-trivy, sca-npm-audit, secrets-gitleaks]
+      - task: generate-report
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: node
+              tag: 20-alpine
+          inputs:
+            - name: source-code
+          outputs:
+            - name: final-report
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                apk add --no-cache jq
+                echo '{"stack":"javascript","timestamp":"'$(date -Iseconds)'","scans":{}}' > final-report/report.json
+                echo "Security scan completed for JavaScript stack"
+                cat final-report/report.json
+      - put: security-report
+        params:
+          file: final-report/report.json
+          acl: private

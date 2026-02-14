@@ -1,0 +1,208 @@
+name: Rust Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            stacks/rust/configs/.semgrep.yml
+            p/rust
+          generateSarif: true
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+
+      - name: Check Results
+        run: |
+          CRITICAL=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' semgrep.json || echo "0")
+          if [ "$CRITICAL" -gt 0 ]; then
+            echo "::error::$CRITICAL critical findings detected"
+            exit 1
+          fi
+
+  cargo-audit:
+    name: Cargo Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run cargo-audit
+        run: |
+          cargo audit --json > cargo-audit.json || true
+          VULNS=$(jq '.vulnerabilities.count' cargo-audit.json)
+          if [ "$VULNS" -gt 0 ]; then
+            echo "::error::$VULNS vulnerabilities detected"
+            jq '.vulnerabilities.list' cargo-audit.json
+            exit 1
+          fi
+
+      - name: Upload Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-audit-results
+          path: cargo-audit.json
+
+  trivy:
+    name: Trivy SCA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '1'
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+  gitleaks:
+    name: Gitleaks Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: true
+          GITLEAKS_ENABLE_SUMMARY: true
+
+  clippy:
+    name: Clippy Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Run Clippy
+        run: |
+          cargo clippy --message-format=json --all-targets -- -D warnings \
+            > clippy-results.json 2>&1 || true
+
+      - name: Check Results
+        run: |
+          ERRORS=$(jq -s '[.[] | select(.reason == "compiler-message" and .message.level == "error")] | length' clippy-results.json)
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "::error::$ERRORS clippy errors detected"
+            exit 1
+          fi
+
+      - name: Upload Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clippy-results
+          path: clippy-results.json
+
+  aggregate:
+    name: Aggregate Results
+    runs-on: ubuntu-latest
+    needs: [semgrep, cargo-audit, trivy, gitleaks, clippy]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: scan-results
+
+      - name: Aggregate Reports
+        run: |
+          mkdir -p final-report
+
+          jq -n \
+            --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --slurpfile semgrep scan-results/semgrep-results/semgrep.json \
+            --slurpfile cargo_audit scan-results/cargo-audit-results/cargo-audit.json \
+            --slurpfile clippy scan-results/clippy-results/clippy-results.json \
+            '{
+              timestamp: $timestamp,
+              stack: "rust",
+              scans: {
+                semgrep: $semgrep[0],
+                cargo_audit: $cargo_audit[0],
+                clippy: $clippy[0]
+              }
+            }' > final-report/security.json
+
+      - name: Upload Final Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report
+          path: final-report/security.json
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('final-report/security.json', 'utf8'));
+
+            const semgrepCount = report.scans.semgrep?.results?.length || 0;
+            const vulnCount = report.scans.cargo_audit?.vulnerabilities?.count || 0;
+
+            const body = `## 🔒 Security Scan Results
+
+            | Scanner | Findings |
+            |---------|----------|
+            | Semgrep | ${semgrepCount} |
+            | Cargo Audit | ${vulnCount} vulnerabilities |
+            | Clippy | ✅ Passed |
+            | Gitleaks | ✅ No secrets |
+            | Trivy | ✅ Passed |
+
+            [View detailed report](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

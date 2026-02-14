@@ -1,0 +1,24 @@
+name: sql
+displayName: SQL
+category: infrastructure
+packageManagers: []
+buildTools: []
+frameworks: [postgresql, mysql, sqlserver, sqlite]
+scanners:
+  sast:
+    - name: semgrep
+      rulesets: [p/sql-injection]
+      config: configs/.semgrep.yml
+    - name: sqlfluff
+      config: configs/.sqlfluff
+  sca: []
+  secrets:
+    - name: gitleaks
+      config: shared
+  dast: []
+  container: []
+ciTemplates:
+  concourse: pipelines/concourse/pipeline.yml
+  githubActions: pipelines/github-actions/security.yml
+skill: skills/secure-sql.md
+compliance: [owasp-top-10, cwe-top-25]

@@ -1,0 +1,371 @@
+---
+resource_types:
+  - name: pull-request
+    type: registry-image
+    source:
+      repository: teliaoss/github-pr-resource
+
+resources:
+  - name: source-code
+    type: git
+    icon: github
+    source:
+      uri: ((git-uri))
+      branch: ((git-branch))
+      private_key: ((git-private-key))
+
+  - name: pull-requests
+    type: pull-request
+    icon: source-pull
+    source:
+      repository: ((github-repository))
+      access_token: ((github-token))
+
+  - name: security-image
+    type: registry-image
+    icon: docker
+    source:
+      repository: ((container-registry))/security-scanner
+      tag: latest
+      username: ((registry-username))
+      password: ((registry-password))
+
+jobs:
+  - name: security-scan-pr
+    public: true
+    plan:
+      - get: pull-requests
+        trigger: true
+        version: every
+
+      - put: pull-requests
+        params:
+          path: pull-requests
+          status: pending
+          context: security-scan
+
+      - in_parallel:
+          - task: semgrep-kotlin-scan
+            config:
+              platform: linux
+              image_resource:
+                type: registry-image
+                source:
+                  repository: returntocorp/semgrep
+              inputs:
+                - name: pull-requests
+                  path: source
+              outputs:
+                - name: semgrep-results
+              run:
+                path: /bin/sh
+                args:
+                  - -c
+                  - |
+                    set -e
+                    cd source
+                    semgrep --config p/kotlin \
+                            --config .semgrep.yml \
+                            --sarif \
+                            --output ../semgrep-results/results.sarif \
+                            --error \
+                            --verbose
+                    semgrep --config p/kotlin \
+                            --config .semgrep.yml \
+                            --json \
+                            --output ../semgrep-results/results.json
+                    echo "Semgrep scan completed"
+
+          - task: detekt-scan
+            config:
+              platform: linux
+              image_resource:
+                type: registry-image
+                source:
+                  repository: openjdk
+                  tag: 17-slim
+              inputs:
+                - name: pull-requests
+                  path: source
+              outputs:
+                - name: detekt-results
+              run:
+                path: /bin/sh
+                args:
+                  - -c
+                  - |
+                    set -e
+                    cd source
+
+                    # Download detekt if not in project
+                    if [ ! -f ./gradlew ]; then
+                      echo "Gradle wrapper not found"
+                      exit 1
+                    fi
+
+                    # Run detekt
+                    ./gradlew detekt --no-daemon || true
+
+                    # Copy results
+                    find build/reports/detekt -name "*.xml" -o -name "*.sarif" | \
+                      xargs -I {} cp {} ../detekt-results/ || true
+
+                    echo "Detekt scan completed"
+
+          - task: trivy-fs-scan
+            config:
+              platform: linux
+              image_resource:
+                type: registry-image
+                source:
+                  repository: aquasec/trivy
+              inputs:
+                - name: pull-requests
+                  path: source
+              outputs:
+                - name: trivy-results
+              run:
+                path: /bin/sh
+                args:
+                  - -c
+                  - |
+                    set -e
+                    cd source
+
+                    # Update Trivy DB
+                    trivy --download-db-only
+
+                    # Scan filesystem for vulnerabilities
+                    trivy fs \
+                      --config ../stacks/kotlin/configs/trivy.yaml \
+                      --format sarif \
+                      --output ../trivy-results/trivy-fs.sarif \
+                      --severity CRITICAL,HIGH,MEDIUM \
+                      --exit-code 0 \
+                      .
+
+                    trivy fs \
+                      --config ../stacks/kotlin/configs/trivy.yaml \
+                      --format json \
+                      --output ../trivy-results/trivy-fs.json \
+                      --severity CRITICAL,HIGH,MEDIUM \
+                      --exit-code 1 \
+                      .
+
+                    echo "Trivy filesystem scan completed"
+
+          - task: gitleaks-scan
+            config:
+              platform: linux
+              image_resource:
+                type: registry-image
+                source:
+                  repository: zricethezav/gitleaks
+              inputs:
+                - name: pull-requests
+                  path: source
+              outputs:
+                - name: gitleaks-results
+              run:
+                path: /bin/sh
+                args:
+                  - -c
+                  - |
+                    set -e
+                    cd source
+
+                    # Run gitleaks
+                    gitleaks detect \
+                      --source . \
+                      --report-format sarif \
+                      --report-path ../gitleaks-results/gitleaks.sarif \
+                      --verbose \
+                      --exit-code 0
+
+                    gitleaks detect \
+                      --source . \
+                      --report-format json \
+                      --report-path ../gitleaks-results/gitleaks.json \
+                      --verbose \
+                      --exit-code 1
+
+                    echo "Gitleaks scan completed"
+
+          - task: dependency-check-scan
+            config:
+              platform: linux
+              image_resource:
+                type: registry-image
+                source:
+                  repository: openjdk
+                  tag: 17-slim
+              inputs:
+                - name: pull-requests
+                  path: source
+              outputs:
+                - name: dependency-check-results
+              run:
+                path: /bin/sh
+                args:
+                  - -c
+                  - |
+                    set -e
+                    cd source
+
+                    # Install dependency-check
+                    curl -L https://github.com/jeremylong/DependencyCheck/releases/download/v8.4.0/dependency-check-8.4.0-release.zip -o dc.zip
+                    unzip -q dc.zip
+
+                    # Run dependency-check
+                    ./dependency-check/bin/dependency-check.sh \
+                      --project "Kotlin Security Scan" \
+                      --scan . \
+                      --suppression ../stacks/kotlin/configs/dependency-check.xml \
+                      --format ALL \
+                      --out ../dependency-check-results \
+                      --failOnCVSS 7 \
+                      --nvdApiKey ((nvd-api-key)) || true
+
+                    echo "OWASP Dependency-Check completed"
+
+      - task: aggregate-results
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: alpine
+          inputs:
+            - name: semgrep-results
+            - name: detekt-results
+            - name: trivy-results
+            - name: gitleaks-results
+            - name: dependency-check-results
+          outputs:
+            - name: security-report
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                set -e
+
+                # Install jq for JSON processing
+                apk add --no-cache jq
+
+                # Count findings
+                SEMGREP_COUNT=$(jq '.results | length' semgrep-results/results.json 2>/dev/null || echo 0)
+                TRIVY_COUNT=$(jq '.Results[].Vulnerabilities | length' trivy-results/trivy-fs.json 2>/dev/null || echo 0)
+                GITLEAKS_COUNT=$(jq '. | length' gitleaks-results/gitleaks.json 2>/dev/null || echo 0)
+
+                # Create summary
+                cat > security-report/summary.txt <<EOF
+                Kotlin Security Scan Summary
+                =============================
+
+                Semgrep Findings: ${SEMGREP_COUNT}
+                Detekt Findings: (see XML report)
+                Trivy Vulnerabilities: ${TRIVY_COUNT}
+                Gitleaks Secrets: ${GITLEAKS_COUNT}
+                Dependency-Check: (see HTML report)
+
+                Detailed reports available in pipeline artifacts.
+                EOF
+
+                cat security-report/summary.txt
+
+        on_success:
+          put: pull-requests
+          params:
+            path: pull-requests
+            status: success
+            context: security-scan
+            comment_file: security-report/summary.txt
+
+        on_failure:
+          put: pull-requests
+          params:
+            path: pull-requests
+            status: failure
+            context: security-scan
+
+  - name: security-scan-main
+    public: true
+    plan:
+      - get: source-code
+        trigger: true
+
+      - in_parallel:
+          - task: semgrep-scan
+            config:
+              platform: linux
+              image_resource:
+                type: registry-image
+                source:
+                  repository: returntocorp/semgrep
+              inputs:
+                - name: source-code
+              run:
+                path: /bin/sh
+                args:
+                  - -c
+                  - |
+                    cd source-code
+                    semgrep --config p/kotlin --config .semgrep.yml --error
+
+          - task: trivy-scan
+            config:
+              platform: linux
+              image_resource:
+                type: registry-image
+                source:
+                  repository: aquasec/trivy
+              inputs:
+                - name: source-code
+              run:
+                path: /bin/sh
+                args:
+                  - -c
+                  - |
+                    cd source-code
+                    trivy fs --severity CRITICAL,HIGH .
+
+          - task: gitleaks-scan
+            config:
+              platform: linux
+              image_resource:
+                type: registry-image
+                source:
+                  repository: zricethezav/gitleaks
+              inputs:
+                - name: source-code
+              run:
+                path: /bin/sh
+                args:
+                  - -c
+                  - |
+                    cd source-code
+                    gitleaks detect --source . --verbose
+
+  - name: container-scan
+    public: true
+    plan:
+      - get: security-image
+        trigger: true
+
+      - task: trivy-image-scan
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: aquasec/trivy
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                trivy image \
+                  --severity CRITICAL,HIGH \
+                  --exit-code 1 \
+                  ((container-registry))/security-scanner:latest

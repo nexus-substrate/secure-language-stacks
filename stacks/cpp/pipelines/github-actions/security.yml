@@ -1,0 +1,259 @@
+name: C++ Security Scanning
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  semgrep-sast:
+    name: Semgrep SAST Scan
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep:latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Semgrep
+        run: |
+          semgrep scan \
+            --config=stacks/cpp/configs/.semgrep.yml \
+            --config=p/c \
+            --error \
+            --verbose \
+            --metrics=off \
+            --sarif \
+            --output=semgrep-results.sarif \
+            .
+
+      - name: Upload Semgrep SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep-results.sarif
+          category: semgrep
+
+      - name: Generate Semgrep report
+        if: always()
+        run: |
+          semgrep scan \
+            --config=stacks/cpp/configs/.semgrep.yml \
+            --config=p/c \
+            --json \
+            --output=semgrep-results.json \
+            .
+
+      - name: Upload Semgrep results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-results
+          path: semgrep-results.*
+
+  cppcheck-sast:
+    name: Cppcheck SAST Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Cppcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cppcheck
+
+      - name: Run Cppcheck
+        run: |
+          cppcheck \
+            --enable=warning,style,performance,portability \
+            --error-exitcode=1 \
+            --xml \
+            --xml-version=2 \
+            --output-file=cppcheck-results.xml \
+            --suppress='*:*/test/*' \
+            --suppress='*:*/tests/*' \
+            --suppress='*:*/third_party/*' \
+            --verbose \
+            src/ || true
+
+          # Also generate human-readable output
+          cppcheck \
+            --enable=warning,style,performance,portability \
+            --suppress='*:*/test/*' \
+            --suppress='*:*/tests/*' \
+            --suppress='*:*/third_party/*' \
+            src/ 2>&1 | tee cppcheck-results.txt
+
+      - name: Upload Cppcheck results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cppcheck-results
+          path: cppcheck-results.*
+
+  trivy-sca:
+    name: Trivy SCA Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          trivy-config: stacks/cpp/configs/trivy.yaml
+          format: 'sarif'
+          output: 'trivy-fs-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '1'
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-fs-results.sarif
+          category: trivy-fs
+
+      - name: Generate Trivy JSON report
+        if: always()
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          trivy-config: stacks/cpp/configs/trivy.yaml
+          format: 'json'
+          output: 'trivy-fs-results.json'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: Upload Trivy results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-fs-results
+          path: trivy-fs-results.*
+
+  gitleaks-secrets:
+    name: Gitleaks Secret Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: shared/configs/gitleaks.toml
+          GITLEAKS_ENABLE_SUMMARY: true
+
+      - name: Upload Gitleaks results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-results
+          path: gitleaks-report.*
+
+  trivy-container:
+    name: Trivy Container Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          if [ -f Dockerfile ]; then
+            docker build -t cpp-app:${{ github.sha }} .
+          else
+            echo "No Dockerfile found, skipping container scan"
+            exit 0
+          fi
+
+      - name: Run Trivy container scan
+        if: hashFiles('Dockerfile') != ''
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: 'cpp-app:${{ github.sha }}'
+          format: 'sarif'
+          output: 'trivy-image-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '1'
+
+      - name: Upload Trivy container SARIF
+        if: hashFiles('Dockerfile') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image-results.sarif
+          category: trivy-container
+
+  security-summary:
+    name: Security Scan Summary
+    runs-on: ubuntu-latest
+    needs: [semgrep-sast, cppcheck-sast, trivy-sca, gitleaks-secrets]
+    if: always()
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Generate summary
+        run: |
+          echo "# C++ Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Scan Status" >> $GITHUB_STEP_SUMMARY
+          echo "- **Semgrep SAST**: ${{ needs.semgrep-sast.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cppcheck SAST**: ${{ needs.cppcheck-sast.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trivy SCA**: ${{ needs.trivy-sca.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Gitleaks Secrets**: ${{ needs.gitleaks-secrets.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "## Findings Summary" >> $GITHUB_STEP_SUMMARY
+          echo "Detailed results available in workflow artifacts." >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const summary = `## C++ Security Scan Results
+
+            | Scanner | Status |
+            |---------|--------|
+            | Semgrep SAST | ${{ needs.semgrep-sast.result }} |
+            | Cppcheck SAST | ${{ needs.cppcheck-sast.result }} |
+            | Trivy SCA | ${{ needs.trivy-sca.result }} |
+            | Gitleaks Secrets | ${{ needs.gitleaks-secrets.result }} |
+
+            View detailed results in the [Actions tab](${context.payload.repository.html_url}/actions/runs/${context.runId}).
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });

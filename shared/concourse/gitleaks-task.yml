@@ -1,0 +1,30 @@
+---
+platform: linux
+
+image_resource:
+  type: registry-image
+  source:
+    repository: zricethezav/gitleaks
+    tag: latest
+
+inputs:
+  - name: source
+
+params:
+  GITLEAKS_CONFIG: ""
+
+run:
+  path: sh
+  args:
+    - -ec
+    - |
+      cd source
+      ARGS="detect --source . --report-format sarif --report-path gitleaks-results.sarif"
+      if [ -n "$GITLEAKS_CONFIG" ] && [ -f "$GITLEAKS_CONFIG" ]; then
+        ARGS="$ARGS --config $GITLEAKS_CONFIG"
+      fi
+      gitleaks $ARGS || true
+      echo "Gitleaks scan complete"
+
+outputs:
+  - name: source

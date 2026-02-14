@@ -1,0 +1,94 @@
+rules:
+  # Reference Semgrep Registry rulesets
+  - id: javascript-security
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: Function(...)
+      - pattern: setTimeout($STR, ...)
+      - pattern: setInterval($STR, ...)
+    message: "Avoid using eval() or Function() constructor - code injection risk"
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code"
+      owasp: "A03:2021 - Injection"
+
+  - id: dangerous-innerHTML
+    pattern-either:
+      - pattern: $X.innerHTML = ...
+      - pattern: $X.outerHTML = ...
+    message: "Avoid setting innerHTML/outerHTML with untrusted data - XSS risk"
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-79: Cross-site Scripting (XSS)"
+      owasp: "A03:2021 - Injection"
+
+  - id: document-write
+    pattern: document.write(...)
+    message: "Avoid document.write() - XSS and performance risks"
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-79: Cross-site Scripting (XSS)"
+
+  - id: sql-injection-string-concat
+    pattern-either:
+      - pattern: |
+          $QUERY = "SELECT ..." + $USER_INPUT + "..."
+      - pattern: |
+          $QUERY = `SELECT ... ${$USER_INPUT} ...`
+    message: "Possible SQL injection via string concatenation - use parameterized queries"
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-89: SQL Injection"
+      owasp: "A03:2021 - Injection"
+
+  - id: hardcoded-secrets
+    pattern-either:
+      - pattern: |
+          $VAR = "...password..."
+      - pattern: |
+          $VAR = "...api_key..."
+      - pattern: |
+          $VAR = "...secret..."
+    message: "Possible hardcoded secret detected"
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+      owasp: "A07:2021 - Identification and Authentication Failures"
+
+  - id: insecure-random
+    pattern: Math.random()
+    message: "Math.random() is not cryptographically secure - use crypto.randomBytes()"
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-330: Use of Insufficiently Random Values"
+
+  - id: prototype-pollution
+    pattern-either:
+      - pattern: |
+          $OBJ[$KEY] = $VALUE
+      - pattern: |
+          Object.assign($TARGET, $SOURCE)
+    message: "Potential prototype pollution - validate object keys"
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-1321: Improperly Controlled Modification of Object Prototype Attributes"
+
+  - id: insecure-cors
+    pattern: |
+      res.header("Access-Control-Allow-Origin", "*")
+    message: "Overly permissive CORS policy - restrict origins"
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-942: Permissive Cross-domain Policy with Untrusted Domains"
+      owasp: "A05:2021 - Security Misconfiguration"
+
+# Include Semgrep Registry rulesets
+# Run with: semgrep --config=p/javascript --config=p/nodejs --config=configs/.semgrep.yml

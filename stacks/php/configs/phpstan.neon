@@ -1,0 +1,75 @@
+parameters:
+    level: 8
+    paths:
+        - src
+        - app
+    excludePaths:
+        - */vendor/*
+        - */tests/*
+        - */Test/*
+
+    # Security-focused checks
+    checkMissingIterableValueType: true
+    checkGenericClassInNonGenericObjectType: true
+    checkMissingCallableSignature: true
+    reportUnmatchedIgnoredErrors: true
+    treatPhpDocTypesAsCertain: false
+
+    # Strict rules for security
+    strictRules:
+        allRules: false
+        booleansInConditions: true
+        uselessCast: true
+        requireParentConstructorCall: true
+        disallowedLooseComparison: true
+        disallowedConstructs: true
+
+    # Forbidden dangerous functions
+    disallowedFunctionCalls:
+        -
+            function: 'eval()'
+            message: 'eval() is dangerous and should never be used'
+        -
+            function: 'exec()'
+            message: 'exec() can lead to command injection - use safe alternatives'
+        -
+            function: 'shell_exec()'
+            message: 'shell_exec() can lead to command injection'
+        -
+            function: 'system()'
+            message: 'system() can lead to command injection'
+        -
+            function: 'passthru()'
+            message: 'passthru() can lead to command injection'
+        -
+            function: 'unserialize()'
+            message: 'unserialize() on untrusted data can lead to object injection'
+        -
+            function: 'md5()'
+            message: 'md5() is cryptographically weak - use password_hash() or hash_hmac()'
+        -
+            function: 'sha1()'
+            message: 'sha1() is cryptographically weak for passwords'
+        -
+            function: 'mt_rand()'
+            message: 'mt_rand() is not cryptographically secure - use random_int()'
+        -
+            function: 'rand()'
+            message: 'rand() is not cryptographically secure - use random_int()'
+        -
+            function: 'create_function()'
+            message: 'create_function() is deprecated and dangerous - use closures'
+        -
+            function: 'assert()'
+            message: 'assert() with string argument can execute code - avoid or disable'
+
+includes:
+    # Security extensions (install via composer)
+    # - vendor/phpstan/phpstan-strict-rules/rules.neon
+    # - vendor/phpstan/phpstan-deprecation-rules/rules.neon
+
+services:
+    # Custom rules can be registered here
+    # - class: App\PHPStan\SecurityRule
+    #   tags:
+    #       - phpstan.rules.rule

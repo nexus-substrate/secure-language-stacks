@@ -1,0 +1,221 @@
+resources:
+  - name: source-code
+    type: git
+    icon: github
+    source:
+      uri: ((git-uri))
+      branch: ((git-branch))
+      private_key: ((git-private-key))
+
+  - name: security-report
+    type: s3
+    icon: aws
+    source:
+      bucket: ((s3-bucket))
+      region_name: ((s3-region))
+      access_key_id: ((aws-access-key))
+      secret_access_key: ((aws-secret-key))
+      versioned_file: security-reports/rust/latest.json
+
+jobs:
+  - name: security-scan
+    plan:
+      - get: source-code
+        trigger: true
+
+      - in_parallel:
+          fail_fast: false
+          steps:
+            - task: semgrep-sast
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: returntocorp/semgrep
+                    tag: latest
+                inputs:
+                  - name: source-code
+                outputs:
+                  - name: semgrep-results
+                run:
+                  path: sh
+                  args:
+                    - -ec
+                    - |
+                      cd source-code
+                      semgrep --config ../source-code/stacks/rust/configs/.semgrep.yml \
+                        --config p/rust \
+                        --json --output ../semgrep-results/report.json \
+                        --metrics=off \
+                        --max-memory 4096 \
+                        .
+
+                      # Check for critical/high findings
+                      CRITICAL=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' ../semgrep-results/report.json)
+                      if [ "$CRITICAL" -gt 0 ]; then
+                        echo "FAIL: $CRITICAL critical findings detected"
+                        exit 1
+                      fi
+
+            - task: cargo-audit
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: rust
+                    tag: latest
+                inputs:
+                  - name: source-code
+                outputs:
+                  - name: cargo-audit-results
+                run:
+                  path: sh
+                  args:
+                    - -ec
+                    - |
+                      cargo install cargo-audit
+                      cd source-code
+                      cargo audit --json > ../cargo-audit-results/report.json || true
+
+                      # Check for vulnerabilities
+                      VULNS=$(jq '.vulnerabilities.count' ../cargo-audit-results/report.json)
+                      if [ "$VULNS" -gt 0 ]; then
+                        echo "FAIL: $VULNS vulnerabilities detected"
+                        jq '.vulnerabilities.list' ../cargo-audit-results/report.json
+                        exit 1
+                      fi
+
+            - task: trivy-sca
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: aquasec/trivy
+                    tag: latest
+                inputs:
+                  - name: source-code
+                outputs:
+                  - name: trivy-results
+                run:
+                  path: sh
+                  args:
+                    - -ec
+                    - |
+                      cd source-code
+                      trivy fs --config stacks/rust/configs/trivy.yaml \
+                        --format json --output ../trivy-results/report.json \
+                        .
+
+                      # Check for critical/high vulnerabilities
+                      CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL" or .Severity == "HIGH")] | length' ../trivy-results/report.json)
+                      if [ "$CRITICAL" -gt 0 ]; then
+                        echo "FAIL: $CRITICAL critical/high vulnerabilities detected"
+                        exit 1
+                      fi
+
+            - task: gitleaks
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: zricethezav/gitleaks
+                    tag: latest
+                inputs:
+                  - name: source-code
+                outputs:
+                  - name: gitleaks-results
+                run:
+                  path: sh
+                  args:
+                    - -ec
+                    - |
+                      cd source-code
+                      gitleaks detect --source . \
+                        --report-format json \
+                        --report-path ../gitleaks-results/report.json \
+                        --no-git \
+                        --exit-code 1 \
+                        || EXIT_CODE=$?
+
+                      if [ "${EXIT_CODE:-0}" -eq 1 ]; then
+                        echo "FAIL: Secrets detected"
+                        jq '.[]' ../gitleaks-results/report.json
+                        exit 1
+                      fi
+
+            - task: clippy-lint
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: rust
+                    tag: latest
+                inputs:
+                  - name: source-code
+                outputs:
+                  - name: clippy-results
+                run:
+                  path: sh
+                  args:
+                    - -ec
+                    - |
+                      cd source-code
+                      rustup component add clippy
+                      cargo clippy --message-format=json --all-targets -- -D warnings \
+                        > ../clippy-results/report.json 2>&1 || true
+
+                      # Parse warnings/errors
+                      ERRORS=$(jq -s '[.[] | select(.reason == "compiler-message" and .message.level == "error")] | length' ../clippy-results/report.json)
+                      if [ "$ERRORS" -gt 0 ]; then
+                        echo "FAIL: $ERRORS clippy errors detected"
+                        exit 1
+                      fi
+
+      - task: aggregate-results
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: alpine
+              tag: latest
+          inputs:
+            - name: semgrep-results
+            - name: cargo-audit-results
+            - name: trivy-results
+            - name: gitleaks-results
+            - name: clippy-results
+          outputs:
+            - name: final-report
+          run:
+            path: sh
+            args:
+              - -ec
+              - |
+                apk add --no-cache jq
+
+                cat > final-report/security.json <<EOF
+                {
+                  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+                  "stack": "rust",
+                  "scans": {
+                    "semgrep": $(cat semgrep-results/report.json),
+                    "cargo_audit": $(cat cargo-audit-results/report.json),
+                    "trivy": $(cat trivy-results/report.json),
+                    "gitleaks": $(cat gitleaks-results/report.json 2>/dev/null || echo '[]'),
+                    "clippy": $(jq -s . clippy-results/report.json)
+                  }
+                }
+                EOF
+
+                echo "Security scan completed successfully"
+
+      - put: security-report
+        params:
+          file: final-report/security.json
+          content_type: application/json

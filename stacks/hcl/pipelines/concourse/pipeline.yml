@@ -1,0 +1,247 @@
+---
+resource_types:
+  - name: pull-request
+    type: registry-image
+    source:
+      repository: teliaoss/github-pr-resource
+
+resources:
+  - name: repo
+    type: git
+    icon: github
+    source:
+      uri: ((repo-uri))
+      branch: ((branch))
+      private_key: ((deploy-key))
+
+  - name: pull-requests
+    type: pull-request
+    icon: source-pull
+    source:
+      repository: ((github-repository))
+      access_token: ((github-token))
+
+jobs:
+  - name: terraform-security-scan
+    public: true
+    plan:
+      - get: repo
+        trigger: true
+
+      - in_parallel:
+          fail_fast: true
+          steps:
+            - task: terraform-validate
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: hashicorp/terraform
+                    tag: latest
+                inputs:
+                  - name: repo
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      cd repo
+                      find . -name "*.tf" -type f -not -path "*/.terraform/*" | \
+                      xargs -I {} dirname {} | sort -u | while read -r dir; do
+                        echo "Validating: $dir"
+                        cd "$dir"
+                        terraform init -backend=false
+                        terraform validate
+                        cd -
+                      done
+
+            - task: tfsec
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: aquasec/tfsec
+                    tag: latest
+                inputs:
+                  - name: repo
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      cd repo
+                      tfsec . \
+                        --config-file=stacks/hcl/configs/tfsec.yml \
+                        --format=json \
+                        --out=tfsec-results.json \
+                        --minimum-severity=MEDIUM
+
+                      # Fail on critical/high findings
+                      critical=$(jq '[.results[] | select(.severity == "CRITICAL")] | length' tfsec-results.json)
+                      high=$(jq '[.results[] | select(.severity == "HIGH")] | length' tfsec-results.json)
+
+                      if [ "$critical" -gt 0 ] || [ "$high" -gt 0 ]; then
+                        echo "Found $critical CRITICAL and $high HIGH severity issues"
+                        jq '.results[] | select(.severity == "CRITICAL" or .severity == "HIGH")' tfsec-results.json
+                        exit 1
+                      fi
+
+            - task: trivy-iac
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: aquasec/trivy
+                    tag: latest
+                inputs:
+                  - name: repo
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      cd repo
+                      trivy config . \
+                        --config=stacks/hcl/configs/trivy.yaml \
+                        --format=json \
+                        --output=trivy-results.json \
+                        --severity=CRITICAL,HIGH,MEDIUM
+
+                      # Check for critical findings
+                      critical=$(jq '[.Results[].Misconfigurations[] | select(.Severity == "CRITICAL")] | length' trivy-results.json)
+                      if [ "$critical" -gt 0 ]; then
+                        echo "Found $critical CRITICAL misconfigurations"
+                        exit 1
+                      fi
+
+            - task: semgrep
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: returntocorp/semgrep
+                    tag: latest
+                inputs:
+                  - name: repo
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      cd repo
+                      semgrep --config=stacks/hcl/configs/.semgrep.yml \
+                        --config=p/terraform \
+                        --severity=ERROR \
+                        --json \
+                        --output=semgrep-results.json \
+                        .
+
+                      errors=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' semgrep-results.json)
+                      if [ "$errors" -gt 0 ]; then
+                        echo "Found $errors critical security issues"
+                        exit 1
+                      fi
+
+            - task: gitleaks
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: zricethezav/gitleaks
+                    tag: latest
+                inputs:
+                  - name: repo
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      cd repo
+                      gitleaks detect \
+                        --config=shared/configs/.gitleaks.toml \
+                        --source=. \
+                        --report-format=json \
+                        --report-path=gitleaks-report.json \
+                        --verbose
+
+  - name: pr-security-scan
+    public: true
+    plan:
+      - get: pull-requests
+        trigger: true
+        version: every
+
+      - put: pull-requests
+        params:
+          path: pull-requests
+          status: pending
+          context: terraform-security
+
+      - in_parallel:
+          fail_fast: false
+          steps:
+            - task: tfsec
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: aquasec/tfsec
+                    tag: latest
+                inputs:
+                  - name: pull-requests
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      cd pull-requests
+                      tfsec . \
+                        --config-file=stacks/hcl/configs/tfsec.yml \
+                        --format=json \
+                        --minimum-severity=HIGH || exit 1
+              on_failure:
+                put: pull-requests
+                params:
+                  path: pull-requests
+                  status: failure
+                  context: terraform-security
+
+            - task: trivy
+              config:
+                platform: linux
+                image_resource:
+                  type: registry-image
+                  source:
+                    repository: aquasec/trivy
+                    tag: latest
+                inputs:
+                  - name: pull-requests
+                run:
+                  path: sh
+                  args:
+                    - -exc
+                    - |
+                      cd pull-requests
+                      trivy config . \
+                        --config=stacks/hcl/configs/trivy.yaml \
+                        --exit-code=1 \
+                        --severity=CRITICAL,HIGH
+              on_failure:
+                put: pull-requests
+                params:
+                  path: pull-requests
+                  status: failure
+                  context: terraform-security
+
+      on_success:
+        put: pull-requests
+        params:
+          path: pull-requests
+          status: success
+          context: terraform-security

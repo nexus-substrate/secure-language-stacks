@@ -1,0 +1,29 @@
+name: cpp
+displayName: C++
+category: compiled
+packageManagers: [conan, vcpkg]
+buildTools: [cmake, make, meson, bazel]
+frameworks: [qt, boost, poco, crow]
+scanners:
+  sast:
+    - name: semgrep
+      rulesets: [p/c]
+      config: configs/.semgrep.yml
+    - name: cppcheck
+      config: configs/cppcheck.cfg
+  sca:
+    - name: trivy
+      scanType: fs
+      config: configs/trivy.yaml
+  secrets:
+    - name: gitleaks
+      config: shared
+  dast: []
+  container:
+    - name: trivy
+      scanType: image
+ciTemplates:
+  concourse: pipelines/concourse/pipeline.yml
+  githubActions: pipelines/github-actions/security.yml
+skill: skills/secure-cpp.md
+compliance: [owasp-top-10, cwe-top-25]

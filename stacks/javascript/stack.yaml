@@ -1,0 +1,32 @@
+name: javascript
+displayName: JavaScript
+category: interpreted
+packageManagers: [npm, pnpm, yarn]
+buildTools: [webpack, vite, rollup, parcel]
+frameworks: [express, react, vue, angular, svelte]
+scanners:
+  sast:
+    - name: semgrep
+      rulesets: [p/javascript, p/nodejs]
+      config: configs/.semgrep.yml
+    - name: eslint-plugin-security
+      config: configs/eslint-security.json
+  sca:
+    - name: trivy
+      scanType: fs
+      config: configs/trivy.yaml
+    - name: npm-audit
+  secrets:
+    - name: gitleaks
+      config: shared
+  dast:
+    - name: zap
+      applicableTo: [express, react, vue, angular, svelte]
+  container:
+    - name: trivy
+      scanType: image
+ciTemplates:
+  concourse: pipelines/concourse/pipeline.yml
+  githubActions: pipelines/github-actions/security.yml
+skill: skills/secure-javascript.md
+compliance: [owasp-top-10, cwe-top-25]

@@ -1,0 +1,125 @@
+name: SQL Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 2 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  sql-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install SQLFluff
+        run: pip install sqlfluff
+
+      - name: SQLFluff Lint
+        run: |
+          sqlfluff lint \
+            --format json \
+            --config stacks/sql/configs/.sqlfluff \
+            . > sqlfluff-results.json || true
+
+          # Convert to SARIF (simplified)
+          cat sqlfluff-results.json | jq '{
+            "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+            "version": "2.1.0",
+            "runs": [{
+              "tool": {
+                "driver": {
+                  "name": "SQLFluff",
+                  "version": "1.0.0"
+                }
+              },
+              "results": [.[] | select(.severity == "error") | {
+                "ruleId": .code,
+                "message": {"text": .description},
+                "level": "error",
+                "locations": [{
+                  "physicalLocation": {
+                    "artifactLocation": {"uri": .filepath},
+                    "region": {"startLine": .line_no}
+                  }
+                }]
+              }]
+            }]
+          }' > sqlfluff.sarif
+        continue-on-error: true
+
+      - name: Upload SQLFluff SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: sqlfluff.sarif
+        if: always()
+
+      - name: Semgrep SQL SAST
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/sql-injection
+            stacks/sql/configs/.semgrep.yml
+          generateSarif: true
+        continue-on-error: true
+
+      - name: Upload Semgrep SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+        if: always()
+
+      - name: Gitleaks Secret Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: SQL Syntax Validation
+        run: |
+          find . -name "*.sql" -type f | while read file; do
+            echo "Validating: $file"
+            # Basic syntax check (expand with actual DB validator)
+            grep -iE "(EXEC|EXECUTE|xp_cmdshell)" "$file" && echo "WARNING: Dynamic SQL detected" || true
+          done
+        continue-on-error: true
+
+      - name: Generate Security Report
+        if: always()
+        run: |
+          cat > sql-security-summary.json <<EOF
+          {
+            "stack": "sql",
+            "timestamp": "$(date -Iseconds)",
+            "commit": "${{ github.sha }}",
+            "branch": "${{ github.ref_name }}",
+            "scans": {
+              "sqlfluff": "completed",
+              "semgrep": "completed",
+              "gitleaks": "completed"
+            }
+          }
+          EOF
+
+      - name: Upload Security Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sql-security-results
+          path: |
+            sqlfluff.sarif
+            semgrep.sarif
+            sql-security-summary.json
+          retention-days: 30

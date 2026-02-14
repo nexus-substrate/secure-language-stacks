@@ -1,0 +1,43 @@
+severity:
+  - HIGH
+  - CRITICAL
+
+# Vulnerability scanning
+scan:
+  # Skip files that don't affect security
+  skip-files:
+    - "**/*.test.ts"
+    - "**/*.test.js"
+    - "**/*.spec.ts"
+    - "**/*.spec.js"
+    - "**/test/**"
+    - "**/tests/**"
+    - "**/__tests__/**"
+
+# Dependency scanning
+dependency:
+  # Scan package.json and lock files
+  scanners:
+    - npm
+    - yarn
+    - pnpm
+
+# Exit code configuration
+exit-code: 1
+
+# Output format
+format: json
+
+# Cache settings
+cache:
+  backend: fs
+
+# Ignore unfixed vulnerabilities (optional - adjust based on policy)
+ignore-unfixed: false
+
+# Custom policies (optional)
+policy:
+  # Example: Allow specific CVEs with justification
+  # ignore:
+  #   - id: CVE-2021-12345
+  #     reason: "False positive - not affected in our use case"

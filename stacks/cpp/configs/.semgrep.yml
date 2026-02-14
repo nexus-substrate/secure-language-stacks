@@ -1,0 +1,190 @@
+rules:
+  # Buffer overflow detection
+  - id: cpp-buffer-overflow-strcpy
+    languages: [c, cpp]
+    message: Unsafe strcpy() detected - can lead to buffer overflow. Use strncpy() or std::string instead.
+    severity: ERROR
+    patterns:
+      - pattern: strcpy(...)
+    metadata:
+      cwe: "CWE-120: Buffer Copy without Checking Size of Input"
+      owasp: "A03:2021 - Injection"
+      category: security
+
+  - id: cpp-buffer-overflow-strcat
+    languages: [c, cpp]
+    message: Unsafe strcat() detected - can lead to buffer overflow. Use strncat() or std::string instead.
+    severity: ERROR
+    patterns:
+      - pattern: strcat(...)
+    metadata:
+      cwe: "CWE-120: Buffer Copy without Checking Size of Input"
+      owasp: "A03:2021 - Injection"
+      category: security
+
+  - id: cpp-buffer-overflow-gets
+    languages: [c, cpp]
+    message: Unsafe gets() detected - always causes buffer overflow. Use fgets() instead.
+    severity: ERROR
+    patterns:
+      - pattern: gets(...)
+    metadata:
+      cwe: "CWE-120: Buffer Copy without Checking Size of Input"
+      owasp: "A03:2021 - Injection"
+      category: security
+
+  # Format string vulnerabilities
+  - id: cpp-format-string-vuln
+    languages: [c, cpp]
+    message: Format string vulnerability - user input used directly as format string. Use "%s" format specifier.
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: printf($USER_INPUT)
+          - pattern: fprintf($FD, $USER_INPUT)
+          - pattern: sprintf($BUF, $USER_INPUT)
+          - pattern: snprintf($BUF, $SIZE, $USER_INPUT)
+    metadata:
+      cwe: "CWE-134: Uncontrolled Format String"
+      owasp: "A03:2021 - Injection"
+      category: security
+
+  # Use-after-free detection
+  - id: cpp-use-after-free
+    languages: [cpp]
+    message: Potential use-after-free - pointer used after delete. Consider using smart pointers.
+    severity: ERROR
+    patterns:
+      - pattern: |
+          delete $PTR;
+          ...
+          $PTR->$METHOD(...);
+    metadata:
+      cwe: "CWE-416: Use After Free"
+      owasp: "A06:2021 - Vulnerable and Outdated Components"
+      category: security
+
+  - id: cpp-double-free
+    languages: [cpp]
+    message: Potential double-free detected. Ensure pointer is only deleted once.
+    severity: ERROR
+    patterns:
+      - pattern: |
+          delete $PTR;
+          ...
+          delete $PTR;
+    metadata:
+      cwe: "CWE-415: Double Free"
+      owasp: "A06:2021 - Vulnerable and Outdated Components"
+      category: security
+
+  # Integer overflow
+  - id: cpp-integer-overflow-multiplication
+    languages: [c, cpp]
+    message: Potential integer overflow in multiplication. Add overflow checks before operation.
+    severity: WARNING
+    patterns:
+      - pattern: $X * $Y
+    pattern-where-python: |
+      "int" in str(vars["$X"]) or "long" in str(vars["$X"])
+    metadata:
+      cwe: "CWE-190: Integer Overflow or Wraparound"
+      owasp: "A04:2021 - Insecure Design"
+      category: security
+
+  # Command injection
+  - id: cpp-command-injection-system
+    languages: [c, cpp]
+    message: Command injection via system() - validate and sanitize all user input. Consider safer alternatives.
+    severity: ERROR
+    patterns:
+      - pattern: system($CMD)
+    metadata:
+      cwe: "CWE-78: OS Command Injection"
+      owasp: "A03:2021 - Injection"
+      category: security
+
+  - id: cpp-command-injection-popen
+    languages: [c, cpp]
+    message: Command injection via popen() - validate and sanitize all user input.
+    severity: ERROR
+    patterns:
+      - pattern: popen($CMD, ...)
+    metadata:
+      cwe: "CWE-78: OS Command Injection"
+      owasp: "A03:2021 - Injection"
+      category: security
+
+  # Memory management
+  - id: cpp-malloc-without-check
+    languages: [c, cpp]
+    message: malloc() return value not checked - can lead to null pointer dereference.
+    severity: WARNING
+    patterns:
+      - pattern: |
+          $PTR = malloc(...);
+          ...
+          *$PTR = ...;
+      - pattern-not: |
+          $PTR = malloc(...);
+          if ($PTR == NULL) { ... }
+          ...
+    metadata:
+      cwe: "CWE-476: NULL Pointer Dereference"
+      owasp: "A04:2021 - Insecure Design"
+      category: security
+
+  - id: cpp-new-without-check
+    languages: [cpp]
+    message: new operator without exception handling - can throw std::bad_alloc.
+    severity: WARNING
+    patterns:
+      - pattern: $PTR = new $TYPE(...);
+      - pattern-not-inside: |
+          try {
+            ...
+          } catch (...) {
+            ...
+          }
+    metadata:
+      cwe: "CWE-755: Improper Handling of Exceptional Conditions"
+      category: security
+
+  # Dangerous functions
+  - id: cpp-dangerous-scanf
+    languages: [c, cpp]
+    message: Unsafe scanf() usage - specify field width to prevent buffer overflow.
+    severity: WARNING
+    patterns:
+      - pattern: scanf("%s", ...)
+    metadata:
+      cwe: "CWE-120: Buffer Copy without Checking Size of Input"
+      owasp: "A03:2021 - Injection"
+      category: security
+
+  - id: cpp-rand-weak-rng
+    languages: [c, cpp]
+    message: Weak random number generator - use cryptographically secure RNG for security purposes.
+    severity: WARNING
+    patterns:
+      - pattern: rand()
+    metadata:
+      cwe: "CWE-330: Use of Insufficiently Random Values"
+      owasp: "A02:2021 - Cryptographic Failures"
+      category: security
+
+  # Path traversal
+  - id: cpp-path-traversal
+    languages: [c, cpp]
+    message: Potential path traversal vulnerability - validate file paths before use.
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: fopen($PATH, ...)
+          - pattern: open($PATH, ...)
+      - pattern-where-python: |
+          ".." in str(vars.get("$PATH", ""))
+    metadata:
+      cwe: "CWE-22: Path Traversal"
+      owasp: "A01:2021 - Broken Access Control"
+      category: security

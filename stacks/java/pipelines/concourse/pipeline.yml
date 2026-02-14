@@ -1,0 +1,314 @@
+# Concourse Pipeline for Java Security Scanning
+# Integrates Semgrep, Trivy, GitLeaks, SpotBugs, and OWASP Dependency-Check
+
+resource_types:
+  - name: slack-notification
+    type: registry-image
+    source:
+      repository: cfcommunity/slack-notification-resource
+      tag: latest
+
+resources:
+  - name: source-code
+    type: git
+    icon: github
+    source:
+      uri: ((git.uri))
+      branch: ((git.branch))
+      private_key: ((git.private_key))
+
+  - name: security-scan-image
+    type: registry-image
+    icon: docker
+    source:
+      repository: ((docker.registry))/security-scanner
+      tag: latest
+      username: ((docker.username))
+      password: ((docker.password))
+
+  - name: slack-alert
+    type: slack-notification
+    icon: slack
+    source:
+      url: ((slack.webhook_url))
+
+jobs:
+  # Job 1: SAST with Semgrep
+  - name: semgrep-scan
+    plan:
+      - get: source-code
+        trigger: true
+      - task: run-semgrep
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: returntocorp/semgrep
+              tag: latest
+          inputs:
+            - name: source-code
+          outputs:
+            - name: semgrep-results
+          params:
+            SEMGREP_RULES: p/java
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                set -e
+                cd source-code
+                semgrep --config=stacks/java/configs/.semgrep.yml \
+                        --config=p/java \
+                        --json \
+                        --output=../semgrep-results/semgrep.json \
+                        --verbose \
+                        .
+
+                # Check for high/critical findings
+                CRITICAL_COUNT=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' ../semgrep-results/semgrep.json)
+                if [ "$CRITICAL_COUNT" -gt 0 ]; then
+                  echo "Found $CRITICAL_COUNT critical security issues"
+                  exit 1
+                fi
+        on_failure:
+          put: slack-alert
+          params:
+            text: "Semgrep scan failed - critical security issues detected"
+            channel: ((slack.channel))
+
+  # Job 2: SpotBugs Security Analysis
+  - name: spotbugs-scan
+    plan:
+      - get: source-code
+        trigger: true
+        passed: [semgrep-scan]
+      - task: run-spotbugs
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: maven
+              tag: 3.9-eclipse-temurin-17
+          inputs:
+            - name: source-code
+          outputs:
+            - name: spotbugs-results
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                set -e
+                cd source-code
+
+                # Download FindSecBugs plugin
+                mkdir -p .spotbugs
+                curl -L https://github.com/find-sec-bugs/find-sec-bugs/releases/download/version-1.12.0/findsecbugs-plugin-1.12.0.jar \
+                     -o .spotbugs/findsecbugs-plugin.jar
+
+                # Run Maven SpotBugs
+                mvn clean compile spotbugs:check \
+                    -DspotbugsXmlOutput=true \
+                    -DspotbugsXmlOutputFilename=../spotbugs-results/spotbugs.xml \
+                    -DexcludeFilterFile=stacks/java/configs/spotbugs-security.xml \
+                    -Dspotbugs.pluginList=.spotbugs/findsecbugs-plugin.jar
+        on_failure:
+          put: slack-alert
+          params:
+            text: "SpotBugs scan detected security vulnerabilities"
+            channel: ((slack.channel))
+
+  # Job 3: Dependency Scanning with Trivy
+  - name: trivy-scan
+    plan:
+      - get: source-code
+        trigger: true
+        passed: [semgrep-scan]
+      - task: run-trivy
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: aquasec/trivy
+              tag: latest
+          inputs:
+            - name: source-code
+          outputs:
+            - name: trivy-results
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                set -e
+                cd source-code
+
+                # Filesystem scan for dependencies
+                trivy fs \
+                      --config=stacks/java/configs/trivy.yaml \
+                      --severity CRITICAL,HIGH \
+                      --format json \
+                      --output ../trivy-results/trivy-fs.json \
+                      .
+
+                # Check for critical vulnerabilities
+                CRITICAL_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' ../trivy-results/trivy-fs.json)
+                HIGH_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' ../trivy-results/trivy-fs.json)
+
+                echo "Critical vulnerabilities: $CRITICAL_COUNT"
+                echo "High vulnerabilities: $HIGH_COUNT"
+
+                if [ "$CRITICAL_COUNT" -gt 0 ]; then
+                  echo "Critical vulnerabilities detected - failing build"
+                  exit 1
+                fi
+        on_failure:
+          put: slack-alert
+          params:
+            text: "Trivy scan found critical vulnerabilities in dependencies"
+            channel: ((slack.channel))
+
+  # Job 4: OWASP Dependency-Check
+  - name: dependency-check
+    plan:
+      - get: source-code
+        trigger: true
+        passed: [trivy-scan]
+      - task: run-dependency-check
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: owasp/dependency-check
+              tag: latest
+          inputs:
+            - name: source-code
+          outputs:
+            - name: dependency-check-results
+          params:
+            NVD_API_KEY: ((nvd.api_key))
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                set -e
+                cd source-code
+
+                /usr/share/dependency-check/bin/dependency-check.sh \
+                  --scan . \
+                  --format JSON \
+                  --out ../dependency-check-results \
+                  --suppression stacks/java/configs/dependency-check.xml \
+                  --nvdApiKey ${NVD_API_KEY} \
+                  --failOnCVSS 7
+        on_failure:
+          put: slack-alert
+          params:
+            text: "OWASP Dependency-Check found high-severity CVEs"
+            channel: ((slack.channel))
+
+  # Job 5: Secret Scanning with GitLeaks
+  - name: gitleaks-scan
+    plan:
+      - get: source-code
+        trigger: true
+      - task: run-gitleaks
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: zricethezav/gitleaks
+              tag: latest
+          inputs:
+            - name: source-code
+          outputs:
+            - name: gitleaks-results
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                set -e
+                cd source-code
+                gitleaks detect \
+                         --source=. \
+                         --report-format=json \
+                         --report-path=../gitleaks-results/gitleaks.json \
+                         --verbose \
+                         --no-git
+        on_failure:
+          put: slack-alert
+          params:
+            text: "GitLeaks detected secrets in source code"
+            channel: ((slack.channel))
+
+  # Job 6: Aggregate Results
+  - name: aggregate-results
+    plan:
+      - get: source-code
+        trigger: true
+        passed:
+          - semgrep-scan
+          - spotbugs-scan
+          - trivy-scan
+          - dependency-check
+          - gitleaks-scan
+      - get: semgrep-results
+        passed: [semgrep-scan]
+      - get: spotbugs-results
+        passed: [spotbugs-scan]
+      - get: trivy-results
+        passed: [trivy-scan]
+      - get: dependency-check-results
+        passed: [dependency-check]
+      - get: gitleaks-results
+        passed: [gitleaks-scan]
+      - task: generate-report
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: python
+              tag: 3.11-slim
+          inputs:
+            - name: semgrep-results
+            - name: spotbugs-results
+            - name: trivy-results
+            - name: dependency-check-results
+            - name: gitleaks-results
+          outputs:
+            - name: final-report
+          run:
+            path: /bin/sh
+            args:
+              - -c
+              - |
+                set -e
+                pip install jq
+
+                # Aggregate all scan results
+                echo "Security Scan Summary" > final-report/summary.txt
+                echo "=====================" >> final-report/summary.txt
+                echo "" >> final-report/summary.txt
+
+                echo "Semgrep Findings:" >> final-report/summary.txt
+                jq '.results | length' semgrep-results/semgrep.json >> final-report/summary.txt
+
+                echo "Trivy Vulnerabilities:" >> final-report/summary.txt
+                jq '[.Results[]?.Vulnerabilities[]?] | length' trivy-results/trivy-fs.json >> final-report/summary.txt
+
+                echo "GitLeaks Secrets:" >> final-report/summary.txt
+                jq 'length' gitleaks-results/gitleaks.json >> final-report/summary.txt
+        on_success:
+          put: slack-alert
+          params:
+            text: "All security scans completed successfully"
+            channel: ((slack.channel))

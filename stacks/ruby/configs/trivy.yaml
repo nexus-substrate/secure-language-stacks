@@ -1,0 +1,142 @@
+# Trivy Security Scanner Configuration
+# https://aquasecurity.github.io/trivy/latest/docs/configuration/
+
+# Scan target
+scan:
+  # Security check types
+  security-checks:
+    - vuln      # Vulnerabilities in dependencies
+    - config    # Misconfigurations
+    - secret    # Hardcoded secrets
+
+  # Severity levels to report
+  severity:
+    - CRITICAL
+    - HIGH
+    - MEDIUM
+
+  # Ignore unfixed vulnerabilities
+  ignore-unfixed: false
+
+  # Exit code when vulnerabilities found
+  exit-code: 1
+
+# Vulnerability detection
+vulnerability:
+  # Vulnerability type (os, library)
+  type:
+    - library
+
+  # Skip DB update
+  skip-db-update: false
+
+  # Offline scan (use cached DB)
+  offline-scan: false
+
+# Output configuration
+output:
+  format: json
+  template: ""
+
+  # Report format options
+  severity: true
+  vuln-type: true
+
+# Cache configuration
+cache:
+  # Cache directory
+  dir: .trivy-cache
+
+  # Clear cache before scan
+  clear: false
+
+# Gemfile.lock specific
+gemfile:
+  # Parse Gemfile.lock
+  enabled: true
+
+  # Check dev dependencies
+  dev: false
+
+# Bundler Audit database
+bundler-audit:
+  # Update advisory database
+  update: true
+
+  # Ignore specific CVEs
+  ignore: []
+
+# Scanning options
+scan-options:
+  # Parallel scan jobs
+  parallel: 5
+
+  # Timeout per scan
+  timeout: 5m
+
+  # Skip directories
+  skip-dirs:
+    - vendor/bundle
+    - node_modules
+    - tmp
+    - log
+    - .git
+
+# File patterns to scan
+file-patterns:
+  - "Gemfile.lock"
+  - "*.gemspec"
+
+# Ignore vulnerabilities
+ignore:
+  # Ignore specific CVE IDs
+  cves: []
+
+  # Ignore file (.trivyignore)
+  file: .trivyignore
+
+  # Ignore unfixed vulnerabilities
+  unfixed: false
+
+# Report configuration
+report:
+  # Include fixed vulnerabilities
+  fixed: true
+
+  # Include suppressed vulnerabilities
+  suppressed: false
+
+  # Compliance report
+  compliance:
+    - owasp-top-10
+    - cwe-top-25
+
+# Registry configuration (for container scans)
+registry:
+  # Skip TLS verification
+  insecure: false
+
+# Database configuration
+db:
+  # Database repository
+  repository: ghcr.io/aquasecurity/trivy-db
+
+  # Skip update
+  skip-update: false
+
+  # Download DB only
+  download-db-only: false
+
+# Miscellaneous
+misc:
+  # Debug mode
+  debug: false
+
+  # Quiet mode (suppress progress)
+  quiet: false
+
+  # No progress bar
+  no-progress: false
+
+  # Light mode (skip slow operations)
+  light: false

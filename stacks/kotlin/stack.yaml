@@ -1,0 +1,33 @@
+name: kotlin
+displayName: Kotlin
+category: compiled
+packageManagers: [gradle, maven]
+buildTools: [kotlinc, gradle, maven]
+frameworks: [ktor, spring-boot, android, compose-multiplatform]
+scanners:
+  sast:
+    - name: semgrep
+      rulesets: [p/kotlin]
+      config: configs/.semgrep.yml
+    - name: detekt
+      config: configs/detekt.yml
+  sca:
+    - name: trivy
+      scanType: fs
+      config: configs/trivy.yaml
+    - name: dependency-check
+      config: configs/dependency-check.xml
+  secrets:
+    - name: gitleaks
+      config: shared
+  dast:
+    - name: zap
+      applicableTo: [ktor, spring-boot]
+  container:
+    - name: trivy
+      scanType: image
+ciTemplates:
+  concourse: pipelines/concourse/pipeline.yml
+  githubActions: pipelines/github-actions/security.yml
+skill: skills/secure-kotlin.md
+compliance: [owasp-top-10, cwe-top-25]

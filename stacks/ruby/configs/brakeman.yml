@@ -1,0 +1,117 @@
+# Brakeman Security Scanner Configuration
+# https://brakemanscanner.org/docs/options/
+
+# Application path (defaults to current directory)
+app_path: "."
+
+# Output format: json, html, csv, tabs, text
+output_format: json
+
+# Minimum confidence level (1=high, 2=medium, 3=weak)
+min_confidence: 2
+
+# Checks to run (empty = all checks)
+# Available checks: https://brakemanscanner.org/docs/warning_types/
+checks:
+  - SQL
+  - SQLCVEs
+  - CrossSiteScripting
+  - CommandInjection
+  - FileAccess
+  - Redirect
+  - MassAssignment
+  - UnsafeReflection
+  - Deserialize
+  - ForgerySetting
+  - ValidationRegex
+  - EscapeFunction
+  - Render
+  - RenderDoS
+  - PermitAttributes
+  - UnscopedFind
+  - LinkToHref
+  - SessionSettings
+  - SymbolDoS
+  - JRubyXML
+  - TemplateInjection
+  - QuoteTableName
+  - FileDisclosure
+  - WithoutProtection
+  - JSONParsing
+  - YAMLParsing
+  - CreateWith
+  - NestedAttributes
+  - I18nXSS
+  - SSLVerify
+  - SessionManipulation
+  - VerbConfusion
+  - WeakHash
+  - CookieSerialization
+  - SanitizeMethods
+
+# Checks to skip (none by default)
+skip_checks: []
+
+# Ignore warnings in these files
+skip_files:
+  - db/schema.rb
+  - vendor/**/*
+  - node_modules/**/*
+
+# Report absolute paths instead of relative
+absolute_paths: false
+
+# GitHub-style code links
+github_repo: ""
+
+# Add GitHub commit SHA to links
+github_sha: ""
+
+# Suppress informational warnings
+report_direct: true
+
+# Show SQL output in warning details
+include_sql: true
+
+# Ignore warnings in lib/ directories
+skip_libs: false
+
+# Process all Ruby files (not just Rails)
+rails3: false
+rails4: false
+rails5: false
+rails6: true
+
+# Exit code behavior
+exit_on_warn: true
+exit_on_error: true
+
+# Parallel processing
+parallel_checks: true
+
+# Add check names to warning messages
+message_limit: 100
+
+# Table width for text output
+table_width: 80
+
+# Highlight user input in warnings
+highlight_user_input: true
+
+# Interprocedural analysis
+interprocedural: true
+
+# Branch limit for flow analysis
+branch_limit: 5
+
+# Pager for text output
+pager: false
+
+# Combine warnings from same location
+combine_locations: true
+
+# Collapse mass assignment warnings
+collapse_mass_assignment: false
+
+# Summary mode (only counts)
+summary: false

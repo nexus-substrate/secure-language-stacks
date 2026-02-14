@@ -1,0 +1,133 @@
+rules:
+  # Dangerous eval usage
+  - id: typescript-dangerous-eval
+    patterns:
+      - pattern: eval($ARG)
+      - pattern: Function($ARG)
+      - pattern: new Function($ARG)
+    message: "Use of eval() or Function() constructor can lead to code injection vulnerabilities"
+    languages: [typescript, javascript]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code"
+      owasp: "A03:2021 - Injection"
+
+  # innerHTML and outerHTML XSS risks
+  - id: typescript-dangerous-innerhtml
+    patterns:
+      - pattern: $EL.innerHTML = $INPUT
+      - pattern: $EL.outerHTML = $INPUT
+    message: "Direct assignment to innerHTML/outerHTML can lead to XSS. Use textContent or sanitize input."
+    languages: [typescript, javascript]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-79: Cross-site Scripting (XSS)"
+      owasp: "A03:2021 - Injection"
+
+  # SQL Injection via string concatenation
+  - id: typescript-sql-injection
+    patterns:
+      - pattern: |
+          $QUERY = "..." + $VAR + "..."
+      - pattern: |
+          $QUERY = `...${$VAR}...`
+    message: "Potential SQL injection via string concatenation. Use parameterized queries."
+    languages: [typescript, javascript]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-89: SQL Injection"
+      owasp: "A03:2021 - Injection"
+    paths:
+      include:
+        - "*.ts"
+        - "*.js"
+
+  # Path traversal vulnerabilities
+  - id: typescript-path-traversal
+    patterns:
+      - pattern: fs.readFile($PATH, ...)
+      - pattern: fs.readFileSync($PATH, ...)
+      - pattern: fs.writeFile($PATH, ...)
+      - pattern: fs.writeFileSync($PATH, ...)
+    message: "Potential path traversal vulnerability. Validate and sanitize file paths from user input."
+    languages: [typescript, javascript]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-22: Path Traversal"
+      owasp: "A01:2021 - Broken Access Control"
+
+  # Insecure randomness
+  - id: typescript-insecure-random
+    patterns:
+      - pattern: Math.random()
+    message: "Math.random() is not cryptographically secure. Use crypto.randomBytes() for security-sensitive operations."
+    languages: [typescript, javascript]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-338: Use of Cryptographically Weak Pseudo-Random Number Generator"
+
+  # Hardcoded secrets
+  - id: typescript-hardcoded-secret
+    patterns:
+      - pattern: |
+          const $VAR = "..."
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: (password|secret|api_key|apikey|token|auth)
+    message: "Potential hardcoded secret detected. Use environment variables or secure vault."
+    languages: [typescript, javascript]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+      owasp: "A07:2021 - Identification and Authentication Failures"
+
+  # Unsafe deserialization
+  - id: typescript-unsafe-deserialization
+    patterns:
+      - pattern: JSON.parse($INPUT)
+    message: "Unsafe deserialization of user input. Validate and sanitize before parsing."
+    languages: [typescript, javascript]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+      owasp: "A08:2021 - Software and Data Integrity Failures"
+
+  # Command injection
+  - id: typescript-command-injection
+    patterns:
+      - pattern: exec($CMD)
+      - pattern: execSync($CMD)
+      - pattern: spawn($CMD, ...)
+      - pattern: spawnSync($CMD, ...)
+    message: "Potential command injection. Sanitize input and use execFile/spawnFile with argument arrays."
+    languages: [typescript, javascript]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-78: OS Command Injection"
+      owasp: "A03:2021 - Injection"
+
+  # Regular expression denial of service (ReDoS)
+  - id: typescript-redos-pattern
+    patterns:
+      - pattern: new RegExp($PATTERN)
+      - pattern: /$PATTERN/.test(...)
+    message: "Potential ReDoS vulnerability. Review regex complexity and test with malicious input."
+    languages: [typescript, javascript]
+    severity: INFO
+    metadata:
+      cwe: "CWE-1333: Inefficient Regular Expression Complexity"
+
+  # Prototype pollution
+  - id: typescript-prototype-pollution
+    patterns:
+      - pattern: $OBJ["__proto__"] = $VAL
+      - pattern: $OBJ.prototype = $VAL
+      - pattern: Object.assign($OBJ, $INPUT)
+    message: "Potential prototype pollution vulnerability. Validate object keys and use Object.create(null)."
+    languages: [typescript, javascript]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-1321: Prototype Pollution"
+
+# Include standard Semgrep rulesets
+# Run with: semgrep --config p/typescript --config p/nodejs --config configs/.semgrep.yml

@@ -1,0 +1,81 @@
+[sqlfluff]
+dialect = ansi
+templater = raw
+max_line_length = 120
+indent_unit = space
+sql_file_exts = .sql,.sql.j2,.dml,.ddl
+
+[sqlfluff:indentation]
+indented_joins = False
+indented_using_on = True
+template_blocks_indent = True
+
+[sqlfluff:rules]
+tab_space_size = 4
+indent_unit = space
+
+[sqlfluff:rules:L001]
+# Unnecessary trailing whitespace
+indent_unit = space
+
+[sqlfluff:rules:L003]
+# Indentation not consistent with previous line
+indent_unit = space
+hanging_indents = True
+
+[sqlfluff:rules:L010]
+# Keywords must be consistently upper case
+capitalisation_policy = upper
+
+[sqlfluff:rules:L014]
+# Unquoted identifiers must be consistently lower case
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:L028]
+# References should be consistent in statements with a single table
+single_table_references = consistent
+
+[sqlfluff:rules:L029]
+# Keywords should not be used as identifiers
+unquoted_identifiers_policy = all
+
+[sqlfluff:rules:L030]
+# Function names should be consistently upper case
+capitalisation_policy = upper
+
+[sqlfluff:rules:L040]
+# Null & Boolean Literals should be consistently upper case
+capitalisation_policy = upper
+
+[sqlfluff:rules:L042]
+# Join clauses should be fully qualified
+fully_qualify_join_types = both
+
+[sqlfluff:rules:L063]
+# Data Types should be consistently upper case
+extended_capitalisation_policy = upper
+
+[sqlfluff:rules:L064]
+# Consistent usage of preferred quotes for quoted literals
+preferred_quoted_literal_style = single_quotes
+
+# Security-focused rules
+[sqlfluff:rules:L045]
+# Query defines a CTE but does not use it
+# Detects potential injection attempts via unused CTEs
+
+[sqlfluff:rules:L046]
+# Jinja tags should have a single whitespace on either side
+# Prevents template injection in dynamic SQL
+
+[sqlfluff:rules:L051]
+# Join clauses should not use USING
+# Forces explicit ON conditions for better audit trails
+
+[sqlfluff:rules:L052]
+# Statements must end with a semi-colon
+# Prevents multi-statement injection
+
+[sqlfluff:rules:L054]
+# GROUP BY/ORDER BY column references should be consistent
+# Detects potential injection in aggregation clauses

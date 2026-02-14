@@ -1,0 +1,88 @@
+# tfsec configuration for Terraform security scanning
+# https://aquasecurity.github.io/tfsec/
+
+# Minimum severity to report (CRITICAL, HIGH, MEDIUM, LOW)
+minimum_severity: MEDIUM
+
+# Exclude specific checks by ID
+exclude:
+  # Example: Exclude specific low-impact checks
+  # - aws-s3-enable-versioning  # S3 versioning not required for ephemeral buckets
+
+# Include only specific checks (commented out - include all by default)
+# include:
+#   - aws-s3-*
+#   - aws-ec2-*
+
+# Custom checks (additional security rules)
+custom_checks:
+  - code: CUSTOM001
+    description: Ensure S3 bucket has server-side encryption enabled
+    severity: HIGH
+    resource_type: aws_s3_bucket
+    check: |
+      resource.server_side_encryption_configuration != null
+
+  - code: CUSTOM002
+    description: Ensure RDS instances are not publicly accessible
+    severity: CRITICAL
+    resource_type: aws_db_instance
+    check: |
+      resource.publicly_accessible == false
+
+  - code: CUSTOM003
+    description: Ensure ECS task definitions do not run in privileged mode
+    severity: HIGH
+    resource_type: aws_ecs_task_definition
+    check: |
+      !any(resource.container_definitions[*].privileged == true)
+
+  - code: CUSTOM004
+    description: Ensure IAM password policy requires minimum length of 14
+    severity: MEDIUM
+    resource_type: aws_iam_account_password_policy
+    check: |
+      resource.minimum_password_length >= 14
+
+# Ignore specific files or directories
+exclude_paths:
+  - .terraform/**
+  - .terragrunt-cache/**
+  - modules/vendor/**
+  - examples/**
+  - tests/**
+
+# Configure output format (default, json, csv, checkstyle, junit, sarif)
+format: default
+
+# Enable additional checks
+tfvars_as_vars: true  # Treat .tfvars files as variable sources
+
+# Severity overrides (change severity of specific checks)
+severity_overrides:
+  aws-s3-enable-bucket-logging: LOW  # Logging optional for dev environments
+  aws-vpc-no-excessive-port-access: HIGH  # Elevate VPC security checks
+
+# Exclude resources by tag
+exclude_by_tags:
+  - key: Environment
+    value: development  # Skip certain checks for dev resources
+    checks:
+      - aws-s3-enable-versioning
+
+# Workspace-specific configuration
+workspaces:
+  production:
+    minimum_severity: HIGH
+    exclude: []
+  staging:
+    minimum_severity: MEDIUM
+  development:
+    minimum_severity: LOW
+
+# Set pass/fail thresholds
+pass_threshold:
+  critical: 0  # Fail if any CRITICAL findings
+  high: 0      # Fail if any HIGH findings
+  medium: 5    # Allow up to 5 MEDIUM findings
+  low: 10      # Allow up to 10 LOW findings

@@ -1,0 +1,31 @@
+# ShellCheck configuration for security-focused scanning
+# Enable all checks by default
+enable=all
+
+# Explicitly enable security-critical checks
+# SC2086: Double quote to prevent globbing and word splitting
+# SC2068: Double quote array expansions to avoid re-splitting elements
+# SC2046: Quote this to prevent word splitting
+# SC2006: Use $(...) notation instead of legacy backticked `...`
+# SC2155: Declare and assign separately to avoid masking return values
+# SC2164: Use 'cd ... || exit' in case cd fails
+# SC2174: When used with -p, -m only applies to the deepest directory
+# SC2191: The = here is literal. To assign by index, use ( [index]=value ) with no spaces
+# SC2145: Argument mixes string and array. Use * or separate argument
+
+# Disable overly pedantic style checks
+disable=SC2034  # Variable appears unused (false positives in sourced files)
+disable=SC1090  # Can't follow non-constant source (expected for dynamic sourcing)
+disable=SC1091  # Not following sourced file (expected for system files)
+
+# Shell dialect (auto-detect from shebang, but default to bash)
+shell=bash
+
+# Severity threshold (style, info, warning, error)
+severity=warning
+
+# External sources to check
+external-sources=true
+
+# Check sourced files
+source-path=SCRIPTDIR

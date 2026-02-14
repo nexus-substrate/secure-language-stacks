@@ -1,0 +1,260 @@
+rules:
+  # SQL Injection
+  - id: php-sql-injection
+    pattern-either:
+      - pattern: mysql_query("..." + $VAR + "...")
+      - pattern: mysqli_query($CONN, "..." + $VAR + "...")
+      - pattern: $PDO->query("..." + $VAR + "...")
+      - pattern: $PDO->exec("..." + $VAR + "...")
+      - pattern: DB::raw("..." + $VAR + "...")
+    message: Potential SQL injection - use prepared statements with parameterized queries
+    languages: [php]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-89
+      owasp: A03:2021-Injection
+
+  # XSS Prevention
+  - id: php-xss-echo
+    pattern-either:
+      - pattern: echo $VAR
+      - pattern: print $VAR
+      - pattern: printf($VAR)
+      - pattern: |
+          <?= $VAR ?>
+    pattern-not-inside: |
+      echo htmlspecialchars(...)
+    pattern-not-inside: |
+      echo htmlentities(...)
+    message: Potential XSS - use htmlspecialchars() or htmlentities() to encode output
+    languages: [php]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-79
+      owasp: A03:2021-Injection
+
+  # Local File Inclusion
+  - id: php-file-inclusion
+    pattern-either:
+      - pattern: include($VAR)
+      - pattern: include_once($VAR)
+      - pattern: require($VAR)
+      - pattern: require_once($VAR)
+    pattern-not-inside: |
+      include(__DIR__ . "...")
+    message: Potential Local File Inclusion (LFI) - validate and sanitize file paths
+    languages: [php]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-98
+      owasp: A03:2021-Injection
+
+  # Remote File Inclusion
+  - id: php-remote-file-inclusion
+    pattern-either:
+      - pattern: file_get_contents($URL)
+      - pattern: fopen($URL, ...)
+      - pattern: readfile($URL)
+    pattern-where-python: |
+      'http' in str(vars['URL']) or '$_GET' in str(vars['URL']) or '$_POST' in str(vars['URL'])
+    message: Potential Remote File Inclusion (RFI) - validate URLs and disable allow_url_fopen
+    languages: [php]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-98
+      owasp: A03:2021-Injection
+
+  # Command Injection
+  - id: php-command-injection
+    pattern-either:
+      - pattern: exec($VAR)
+      - pattern: shell_exec($VAR)
+      - pattern: system($VAR)
+      - pattern: passthru($VAR)
+      - pattern: popen($VAR, ...)
+      - pattern: proc_open($VAR, ...)
+    message: Potential command injection - validate and sanitize user input, use escapeshellarg()
+    languages: [php]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-78
+      owasp: A03:2021-Injection
+
+  # Object Injection
+  - id: php-object-injection
+    pattern-either:
+      - pattern: unserialize($VAR)
+    pattern-not-inside: |
+      unserialize($VAR, ['allowed_classes' => [...]])
+    message: Potential PHP object injection - avoid unserialize() on untrusted data or use allowed_classes
+    languages: [php]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-502
+      owasp: A08:2021-Software and Data Integrity Failures
+
+  # Dangerous eval()
+  - id: php-eval-usage
+    pattern-either:
+      - pattern: eval($VAR)
+      - pattern: assert($VAR)
+      - pattern: create_function(...)
+    message: Dangerous eval() or assert() usage - avoid dynamic code execution
+    languages: [php]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-95
+      owasp: A03:2021-Injection
+
+  # Deprecated preg_replace /e modifier
+  - id: php-preg-replace-e-modifier
+    pattern: preg_replace($PATTERN, $REPLACEMENT, $SUBJECT)
+    pattern-where-python: |
+      '/e' in str(vars['PATTERN']) or '"/e' in str(vars['PATTERN'])
+    message: Deprecated preg_replace() /e modifier enables code execution - use preg_replace_callback()
+    languages: [php]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-95
+      owasp: A03:2021-Injection
+
+  # Weak Cryptography
+  - id: php-weak-crypto
+    pattern-either:
+      - pattern: md5($VAR)
+      - pattern: sha1($VAR)
+      - pattern: crypt($VAR, $SALT)
+    message: Weak cryptographic function - use password_hash() with bcrypt or argon2
+    languages: [php]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-327
+      owasp: A02:2021-Cryptographic Failures
+
+  # Hardcoded Credentials
+  - id: php-hardcoded-credentials
+    pattern-either:
+      - pattern: $PASSWORD = "..."
+      - pattern: $API_KEY = "..."
+      - pattern: $SECRET = "..."
+      - pattern: define("PASSWORD", "...")
+    message: Hardcoded credentials detected - use environment variables or secure vaults
+    languages: [php]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-798
+      owasp: A07:2021-Identification and Authentication Failures
+
+  # Weak Random
+  - id: php-weak-random
+    pattern-either:
+      - pattern: rand()
+      - pattern: mt_rand()
+      - pattern: srand(...)
+    message: Weak random number generator - use random_bytes() or random_int() for security
+    languages: [php]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-330
+      owasp: A02:2021-Cryptographic Failures
+
+  # Type Juggling Risks
+  - id: php-loose-comparison
+    pattern-either:
+      - pattern: |
+          if ($VAR == "...") { ... }
+      - pattern: |
+          if ("..." == $VAR) { ... }
+      - pattern: in_array($VAR, $ARRAY)
+    pattern-not: in_array($VAR, $ARRAY, true)
+    message: Loose comparison can cause type juggling - use strict comparison (=== or in_array with strict)
+    languages: [php]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-697
+      owasp: A04:2021-Insecure Design
+
+  # Session Fixation
+  - id: php-session-fixation
+    pattern: session_start()
+    pattern-not-inside: |
+      session_regenerate_id(true)
+    message: Potential session fixation - call session_regenerate_id(true) after authentication
+    languages: [php]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-384
+      owasp: A07:2021-Identification and Authentication Failures
+
+  # Open Redirect
+  - id: php-open-redirect
+    pattern-either:
+      - pattern: header("Location: " . $VAR)
+      - pattern: |
+          header("Location: $VAR")
+    message: Potential open redirect - validate redirect URLs against allowlist
+    languages: [php]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-601
+      owasp: A01:2021-Broken Access Control
+
+  # Path Traversal
+  - id: php-path-traversal
+    pattern-either:
+      - pattern: file_get_contents($VAR)
+      - pattern: file_put_contents($VAR, ...)
+      - pattern: unlink($VAR)
+      - pattern: fopen($VAR, ...)
+    pattern-not-inside: |
+      realpath(...)
+    message: Potential path traversal - validate file paths with realpath() and check base directory
+    languages: [php]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-22
+      owasp: A01:2021-Broken Access Control
+
+  # Laravel Mass Assignment
+  - id: laravel-mass-assignment
+    pattern: $MODEL->create($REQUEST->all())
+    message: Mass assignment vulnerability - use $fillable or $guarded in model
+    languages: [php]
+    severity: WARNING
+    metadata:
+      category: security
+      framework: laravel
+      cwe: CWE-915
+      owasp: A04:2021-Insecure Design
+
+  # WordPress nonce validation
+  - id: wordpress-missing-nonce
+    pattern: |
+      if ($_POST) {
+        ...
+      }
+    pattern-not-inside: |
+      wp_verify_nonce(...)
+    message: Missing WordPress nonce verification - validate with wp_verify_nonce()
+    languages: [php]
+    severity: WARNING
+    metadata:
+      category: security
+      framework: wordpress
+      cwe: CWE-352
+      owasp: A01:2021-Broken Access Control

@@ -1,0 +1,270 @@
+name: Terraform Security Scanning
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - '**.tf'
+      - '**.tfvars'
+      - '**.hcl'
+      - 'stacks/hcl/**'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - '**.tf'
+      - '**.tfvars'
+      - '**.hcl'
+      - 'stacks/hcl/**'
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  terraform-validate:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: latest
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        run: |
+          find . -name "*.tf" -type f -not -path "*/.terraform/*" | \
+          xargs -I {} dirname {} | sort -u | while read dir; do
+            echo "Validating: $dir"
+            cd "$dir"
+            terraform init -backend=false
+            terraform validate
+            cd -
+          done
+
+  tfsec:
+    name: tfsec Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          config_file: stacks/hcl/configs/tfsec.yml
+          format: sarif
+          soft_fail: false
+
+      - name: Upload tfsec results to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+          category: tfsec
+
+      - name: Check for critical findings
+        run: |
+          tfsec . \
+            --config-file=stacks/hcl/configs/tfsec.yml \
+            --format=json \
+            --out=tfsec-results.json \
+            --minimum-severity=MEDIUM
+
+          critical=$(jq '[.results[] | select(.severity == "CRITICAL")] | length' tfsec-results.json)
+          high=$(jq '[.results[] | select(.severity == "HIGH")] | length' tfsec-results.json)
+
+          if [ "$critical" -gt 0 ] || [ "$high" -gt 0 ]; then
+            echo "::error::Found $critical CRITICAL and $high HIGH severity issues"
+            jq '.results[] | select(.severity == "CRITICAL" or .severity == "HIGH")' tfsec-results.json
+            exit 1
+          fi
+
+  trivy:
+    name: Trivy IaC Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy IaC scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          trivy-config: stacks/hcl/configs/trivy.yaml
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-iac
+
+      - name: Check for critical misconfigurations
+        run: |
+          trivy config . \
+            --config=stacks/hcl/configs/trivy.yaml \
+            --format=json \
+            --output=trivy-results.json \
+            --severity=CRITICAL,HIGH
+
+          critical=$(jq '[.Results[].Misconfigurations[] | select(.Severity == "CRITICAL")] | length' trivy-results.json)
+          if [ "$critical" -gt 0 ]; then
+            echo "::error::Found $critical CRITICAL misconfigurations"
+            exit 1
+          fi
+
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: |
+          semgrep --config=stacks/hcl/configs/.semgrep.yml \
+            --config=p/terraform \
+            --severity=ERROR \
+            --severity=WARNING \
+            --sarif \
+            --output=semgrep-results.sarif \
+            .
+
+      - name: Upload Semgrep results to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep-results.sarif
+          category: semgrep-terraform
+
+      - name: Check for critical findings
+        run: |
+          semgrep --config=stacks/hcl/configs/.semgrep.yml \
+            --config=p/terraform \
+            --severity=ERROR \
+            --json \
+            --output=semgrep-results.json \
+            .
+
+          errors=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' semgrep-results.json)
+          if [ "$errors" -gt 0 ]; then
+            echo "::error::Found $errors critical security issues"
+            jq '.results[] | select(.extra.severity == "ERROR")' semgrep-results.json
+            exit 1
+          fi
+
+  gitleaks:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: shared/configs/.gitleaks.toml
+
+  checkov:
+    name: Checkov Policy as Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: terraform
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+          soft_fail: false
+
+      - name: Upload Checkov results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov-results.sarif
+          category: checkov
+
+  security-gate:
+    name: Security Gate
+    runs-on: ubuntu-latest
+    needs: [terraform-validate, tfsec, trivy, semgrep, gitleaks, checkov]
+    if: always()
+    steps:
+      - name: Check job results
+        run: |
+          if [ "${{ needs.terraform-validate.result }}" != "success" ] || \
+             [ "${{ needs.tfsec.result }}" != "success" ] || \
+             [ "${{ needs.trivy.result }}" != "success" ] || \
+             [ "${{ needs.semgrep.result }}" != "success" ] || \
+             [ "${{ needs.gitleaks.result }}" != "success" ] || \
+             [ "${{ needs.checkov.result }}" != "success" ]; then
+            echo "::error::Security checks failed"
+            exit 1
+          fi
+          echo "::notice::All security checks passed"
+
+  comment-pr:
+    name: Comment on PR
+    runs-on: ubuntu-latest
+    needs: [terraform-validate, tfsec, trivy, semgrep, gitleaks, checkov]
+    if: github.event_name == 'pull_request' && always()
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Create PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = {
+              validate: '${{ needs.terraform-validate.result }}',
+              tfsec: '${{ needs.tfsec.result }}',
+              trivy: '${{ needs.trivy.result }}',
+              semgrep: '${{ needs.semgrep.result }}',
+              gitleaks: '${{ needs.gitleaks.result }}',
+              checkov: '${{ needs.checkov.result }}'
+            };
+
+            const passed = Object.values(status).every(r => r === 'success');
+            const icon = passed ? '✅' : '❌';
+
+            const body = `## ${icon} Terraform Security Scan Results
+
+            | Check | Status |
+            |-------|--------|
+            | Terraform Validate | ${status.validate === 'success' ? '✅' : '❌'} |
+            | tfsec | ${status.tfsec === 'success' ? '✅' : '❌'} |
+            | Trivy IaC | ${status.trivy === 'success' ? '✅' : '❌'} |
+            | Semgrep | ${status.semgrep === 'success' ? '✅' : '❌'} |
+            | Gitleaks | ${status.gitleaks === 'success' ? '✅' : '❌'} |
+            | Checkov | ${status.checkov === 'success' ? '✅' : '❌'} |
+
+            ${passed ? 'All security checks passed!' : 'Some security checks failed. Please review the workflow logs.'}`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

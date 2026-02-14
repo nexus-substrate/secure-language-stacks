@@ -1,0 +1,32 @@
+name: python
+displayName: Python
+category: interpreted
+packageManagers: [pip, poetry, pipenv, uv]
+buildTools: [setuptools, hatch, flit]
+frameworks: [django, flask, fastapi, tornado, aiohttp]
+scanners:
+  sast:
+    - name: semgrep
+      rulesets: [p/python, p/django, p/flask]
+      config: configs/.semgrep.yml
+    - name: bandit
+      config: configs/bandit.yaml
+  sca:
+    - name: trivy
+      scanType: fs
+      config: configs/trivy.yaml
+    - name: pip-audit
+  secrets:
+    - name: gitleaks
+      config: shared
+  dast:
+    - name: zap
+      applicableTo: [django, flask, fastapi]
+  container:
+    - name: trivy
+      scanType: image
+ciTemplates:
+  concourse: pipelines/concourse/pipeline.yml
+  githubActions: pipelines/github-actions/security.yml
+skill: skills/secure-python.md
+compliance: [owasp-top-10, cwe-top-25]

@@ -1,0 +1,51 @@
+format: json
+output: trivy-results.json
+severity:
+  - HIGH
+  - CRITICAL
+vuln-type:
+  - os
+  - library
+scanners:
+  - vuln
+  - secret
+  - config
+exit-code: 1
+ignore-unfixed: false
+timeout: 10m
+
+# JavaScript-specific configurations
+scan:
+  file-patterns:
+    - "package.json"
+    - "package-lock.json"
+    - "yarn.lock"
+    - "pnpm-lock.yaml"
+  skip-dirs:
+    - node_modules
+    - dist
+    - build
+    - coverage
+    - .next
+    - .nuxt
+
+# Vulnerability detection settings
+vulnerability:
+  type:
+    - os
+    - library
+  ignore-unfixed: false
+
+# Secret detection patterns
+secret:
+  config: trivy-secret.yaml
+
+# License scanning (optional)
+license:
+  full: false
+  confidenceLevel: 0.9
+
+# Compliance checks
+compliance:
+  - owasp-top-10
+  - cwe-top-25

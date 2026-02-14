@@ -1,0 +1,22 @@
+name: yaml
+displayName: YAML
+category: infrastructure
+packageManagers: []
+buildTools: []
+frameworks: [kubernetes, docker-compose, ansible, github-actions, concourse]
+scanners:
+  sast:
+    - name: semgrep
+      rulesets: [p/kubernetes]
+      config: configs/.semgrep.yml
+  sca: []
+  secrets:
+    - name: gitleaks
+      config: shared
+  dast: []
+  container: []
+ciTemplates:
+  concourse: pipelines/concourse/pipeline.yml
+  githubActions: pipelines/github-actions/security.yml
+skill: skills/secure-yaml.md
+compliance: [owasp-top-10, cwe-top-25]

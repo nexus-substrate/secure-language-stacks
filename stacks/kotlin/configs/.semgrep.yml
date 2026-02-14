@@ -1,0 +1,204 @@
+rules:
+  # SQL Injection in Kotlin
+  - id: kotlin-sql-injection
+    pattern-either:
+      - pattern: |
+          $CONN.prepareStatement("... $VAR ...")
+      - pattern: |
+          $CONN.createStatement().executeQuery("... $VAR ...")
+      - pattern: |
+          $CONN.createStatement().execute("... $VAR ...")
+    message: Potential SQL injection detected. Use parameterized queries instead.
+    severity: ERROR
+    languages: [kotlin]
+    metadata:
+      cwe: CWE-89
+      owasp: A03:2021
+
+  # Android Intent Injection
+  - id: kotlin-android-intent-injection
+    pattern-either:
+      - pattern: |
+          Intent($VAR)
+      - pattern: |
+          Intent.parseUri($VAR, ...)
+      - pattern: |
+          startActivity(Intent($VAR))
+    message: Potential intent injection. Validate and sanitize intent data.
+    severity: WARNING
+    languages: [kotlin]
+    metadata:
+      cwe: CWE-927
+      owasp: A03:2021
+
+  # WebView JavaScript Enabled (Android)
+  - id: kotlin-webview-javascript-enabled
+    pattern: |
+      $WEBVIEW.settings.javaScriptEnabled = true
+    message: WebView has JavaScript enabled. Ensure proper input validation and avoid loading untrusted content.
+    severity: WARNING
+    languages: [kotlin]
+    metadata:
+      cwe: CWE-749
+      owasp: A05:2021
+
+  # Hardcoded Secrets
+  - id: kotlin-hardcoded-secret
+    pattern-either:
+      - pattern: |
+          val $VAR = "..."
+      - pattern: |
+          const val $VAR = "..."
+    pattern-regex: (password|secret|api[_-]?key|token|credential)
+    message: Potential hardcoded secret detected. Use secure secret management.
+    severity: ERROR
+    languages: [kotlin]
+    metadata:
+      cwe: CWE-798
+      owasp: A07:2021
+
+  # Insecure Cryptography - MD5/SHA1
+  - id: kotlin-insecure-hash
+    pattern-either:
+      - pattern: |
+          MessageDigest.getInstance("MD5")
+      - pattern: |
+          MessageDigest.getInstance("SHA-1")
+      - pattern: |
+          MessageDigest.getInstance("SHA1")
+    message: Insecure hash algorithm detected. Use SHA-256 or stronger.
+    severity: ERROR
+    languages: [kotlin]
+    metadata:
+      cwe: CWE-327
+      owasp: A02:2021
+
+  # Exported Android Components without Permission
+  - id: kotlin-exported-component-no-permission
+    pattern: |
+      <$COMPONENT android:exported="true" ... />
+    pattern-not: |
+      <$COMPONENT android:exported="true" android:permission="..." />
+    message: Exported Android component without permission. Add permission attribute.
+    severity: ERROR
+    languages: [xml]
+    paths:
+      include:
+        - "*/AndroidManifest.xml"
+    metadata:
+      cwe: CWE-926
+      owasp: A01:2021
+
+  # Insecure Random Number Generation
+  - id: kotlin-insecure-random
+    pattern-either:
+      - pattern: |
+          Random()
+      - pattern: |
+          java.util.Random()
+      - pattern: |
+          kotlin.random.Random.Default
+    message: Insecure random number generator. Use SecureRandom for security-sensitive operations.
+    severity: WARNING
+    languages: [kotlin]
+    metadata:
+      cwe: CWE-330
+      owasp: A02:2021
+
+  # Path Traversal
+  - id: kotlin-path-traversal
+    pattern-either:
+      - pattern: |
+          File($VAR)
+      - pattern: |
+          FileInputStream($VAR)
+      - pattern: |
+          FileOutputStream($VAR)
+    message: Potential path traversal vulnerability. Validate and sanitize file paths.
+    severity: WARNING
+    languages: [kotlin]
+    metadata:
+      cwe: CWE-22
+      owasp: A01:2021
+
+  # Insecure SSL/TLS Configuration
+  - id: kotlin-insecure-ssl
+    pattern-either:
+      - pattern: |
+          SSLContext.getInstance("SSL")
+      - pattern: |
+          SSLContext.getInstance("SSLv3")
+      - pattern: |
+          SSLContext.getInstance("TLS")
+      - pattern: |
+          SSLContext.getInstance("TLSv1")
+      - pattern: |
+          SSLContext.getInstance("TLSv1.1")
+    message: Insecure SSL/TLS version. Use TLSv1.2 or TLSv1.3.
+    severity: ERROR
+    languages: [kotlin]
+    metadata:
+      cwe: CWE-327
+      owasp: A02:2021
+
+  # Kotlin Coroutine Context Leak
+  - id: kotlin-coroutine-context-leak
+    pattern: |
+      GlobalScope.launch { ... }
+    message: Using GlobalScope can leak coroutines. Use structured concurrency with CoroutineScope.
+    severity: WARNING
+    languages: [kotlin]
+    metadata:
+      cwe: CWE-404
+      category: security
+
+  # Nullable Type Misuse
+  - id: kotlin-unsafe-null-assertion
+    pattern: |
+      $VAR!!
+    message: Unsafe null assertion operator. Consider using safe call (?.) or elvis operator (?:).
+    severity: INFO
+    languages: [kotlin]
+    metadata:
+      category: security
+
+  # Command Injection
+  - id: kotlin-command-injection
+    pattern-either:
+      - pattern: |
+          Runtime.getRuntime().exec($VAR)
+      - pattern: |
+          ProcessBuilder($VAR)
+    message: Potential command injection. Validate and sanitize command arguments.
+    severity: ERROR
+    languages: [kotlin]
+    metadata:
+      cwe: CWE-78
+      owasp: A03:2021
+
+  # Insecure Deserialization
+  - id: kotlin-insecure-deserialization
+    pattern-either:
+      - pattern: |
+          ObjectInputStream($VAR)
+      - pattern: |
+          readObject()
+    message: Potential insecure deserialization. Validate serialized data and use safe alternatives.
+    severity: ERROR
+    languages: [kotlin]
+    metadata:
+      cwe: CWE-502
+      owasp: A08:2021
+
+  # Android Broadcast Receiver without Permission
+  - id: kotlin-broadcast-receiver-no-permission
+    pattern: |
+      registerReceiver($RECEIVER, $FILTER)
+    pattern-not: |
+      registerReceiver($RECEIVER, $FILTER, $PERMISSION, ...)
+    message: Broadcast receiver registered without permission. Add permission parameter.
+    severity: WARNING
+    languages: [kotlin]
+    metadata:
+      cwe: CWE-925
+      owasp: A04:2021

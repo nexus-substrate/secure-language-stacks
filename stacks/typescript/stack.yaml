@@ -1,0 +1,32 @@
+name: typescript
+displayName: TypeScript
+category: compiled
+packageManagers: [npm, pnpm, yarn]
+buildTools: [tsc, tsup, esbuild, swc]
+frameworks: [express, nestjs, next, fastify, hono]
+scanners:
+  sast:
+    - name: semgrep
+      rulesets: [p/typescript, p/nodejs]
+      config: configs/.semgrep.yml
+    - name: eslint-plugin-security
+      config: configs/eslint-security.json
+  sca:
+    - name: trivy
+      scanType: fs
+      config: configs/trivy.yaml
+    - name: npm-audit
+  secrets:
+    - name: gitleaks
+      config: shared
+  dast:
+    - name: zap
+      applicableTo: [express, nestjs, next, fastify, hono]
+  container:
+    - name: trivy
+      scanType: image
+ciTemplates:
+  concourse: pipelines/concourse/pipeline.yml
+  githubActions: pipelines/github-actions/security.yml
+skill: skills/secure-typescript.md
+compliance: [owasp-top-10, cwe-top-25]

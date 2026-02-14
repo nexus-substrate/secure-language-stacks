@@ -1,0 +1,30 @@
+name: go
+displayName: Go
+category: compiled
+packageManagers: [go-modules]
+buildTools: [go-build]
+frameworks: [gin, echo, fiber, chi, net-http]
+scanners:
+  sast:
+    - name: semgrep
+      rulesets: [p/golang]
+      config: configs/.semgrep.yml
+    - name: gosec
+      config: configs/gosec.json
+  sca:
+    - name: trivy
+      scanType: fs
+      config: configs/trivy.yaml
+    - name: govulncheck
+  secrets:
+    - name: gitleaks
+      config: shared
+  dast: []
+  container:
+    - name: trivy
+      scanType: image
+ciTemplates:
+  concourse: pipelines/concourse/pipeline.yml
+  githubActions: pipelines/github-actions/security.yml
+skill: skills/secure-go.md
+compliance: [owasp-top-10, cwe-top-25]

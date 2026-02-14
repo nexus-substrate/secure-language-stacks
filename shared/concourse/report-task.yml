@@ -1,0 +1,33 @@
+---
+platform: linux
+
+image_resource:
+  type: registry-image
+  source:
+    repository: python
+    tag: 3.12-slim
+
+inputs:
+  - name: source
+
+run:
+  path: sh
+  args:
+    - -ec
+    - |
+      cd source
+      echo "=== Security Scan Summary ==="
+      for f in *-results.sarif; do
+        if [ -f "$f" ]; then
+          TOOL=$(echo "$f" | sed 's/-results.sarif//')
+          COUNT=$(python3 -c "
+      import json, sys
+      with open('$f') as fh:
+          data = json.load(fh)
+          results = data.get('runs', [{}])[0].get('results', [])
+          print(len(results))
+      " 2>/dev/null || echo "?")
+          echo "  $TOOL: $COUNT findings"
+        fi
+      done
+      echo "=== End Summary ==="

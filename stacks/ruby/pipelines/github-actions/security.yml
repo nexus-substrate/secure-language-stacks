@@ -1,0 +1,272 @@
+# GitHub Actions Workflow - Ruby Security Scanning
+
+name: Ruby Security Scan
+
+on:
+  push:
+    branches: [main, develop, 'release/**']
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+env:
+  RUBY_VERSION: '3.2'
+
+jobs:
+  # Job 1: SAST with Semgrep
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep:latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Semgrep
+        run: |
+          semgrep scan \
+            --config=stacks/ruby/configs/.semgrep.yml \
+            --config=p/ruby \
+            --config=p/rails \
+            --config=p/owasp-top-ten \
+            --json \
+            --output=semgrep-results.json \
+            --severity=ERROR \
+            --severity=WARNING \
+            --max-memory=4096 \
+            .
+
+      - name: Check for critical findings
+        run: |
+          CRITICAL_COUNT=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' semgrep-results.json)
+          echo "Critical findings: $CRITICAL_COUNT"
+
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            echo "::error::Found $CRITICAL_COUNT critical security issues"
+            jq -r '.results[] | select(.extra.severity == "ERROR") | "::error file=\(.path),line=\(.start.line)::\(.extra.message)"' semgrep-results.json
+            exit 1
+          fi
+
+      - name: Upload Semgrep results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-results
+          path: semgrep-results.json
+          retention-days: 30
+
+  # Job 2: Rails Security with Brakeman
+  brakeman:
+    name: Brakeman Rails Security
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+
+      - name: Install Brakeman
+        run: gem install brakeman
+
+      - name: Check if Rails app
+        id: check_rails
+        run: |
+          if [ -f "config/application.rb" ]; then
+            echo "is_rails=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_rails=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Brakeman
+        if: steps.check_rails.outputs.is_rails == 'true'
+        run: |
+          brakeman \
+            --config-file=stacks/ruby/configs/brakeman.yml \
+            --format=json \
+            --output=brakeman-results.json \
+            --no-pager \
+            --force \
+            .
+
+      - name: Check Brakeman findings
+        if: steps.check_rails.outputs.is_rails == 'true'
+        run: |
+          HIGH_CONF=$(jq '[.warnings[] | select(.confidence == "High")] | length' brakeman-results.json)
+          echo "High confidence warnings: $HIGH_CONF"
+
+          if [ "$HIGH_CONF" -gt 0 ]; then
+            echo "::warning::Found $HIGH_CONF high confidence security warnings"
+            jq -r '.warnings[] | select(.confidence == "High") | "::warning file=\(.file),line=\(.line)::\(.message)"' brakeman-results.json
+          fi
+
+      - name: Upload Brakeman results
+        uses: actions/upload-artifact@v4
+        if: always() && steps.check_rails.outputs.is_rails == 'true'
+        with:
+          name: brakeman-results
+          path: brakeman-results.json
+          retention-days: 30
+
+  # Job 3: SCA with Trivy
+  trivy-sca:
+    name: Trivy SCA
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'json'
+          output: 'trivy-results.json'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          scanners: 'vuln'
+
+      - name: Check Trivy findings
+        run: |
+          if [ -f trivy-results.json ]; then
+            CRITICAL_HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL" or .Severity == "HIGH")] | length' trivy-results.json)
+            echo "Critical/High vulnerabilities: $CRITICAL_HIGH"
+
+            if [ "$CRITICAL_HIGH" -gt 0 ]; then
+              echo "::error::Found $CRITICAL_HIGH critical/high vulnerabilities"
+              exit 1
+            fi
+          fi
+
+      - name: Upload Trivy results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-results
+          path: trivy-results.json
+          retention-days: 30
+
+  # Job 4: Bundler Audit
+  bundler-audit:
+    name: Bundler Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+
+      - name: Install Bundler Audit
+        run: gem install bundler-audit
+
+      - name: Update advisory database
+        run: bundle-audit update
+
+      - name: Run Bundler Audit
+        run: |
+          bundle-audit check --format json > bundler-audit-results.json || true
+
+      - name: Check audit findings
+        run: |
+          VULN_COUNT=$(jq '.results | length' bundler-audit-results.json)
+          echo "Vulnerable gems: $VULN_COUNT"
+
+          if [ "$VULN_COUNT" -gt 0 ]; then
+            echo "::warning::Found $VULN_COUNT vulnerable gems"
+            jq -r '.results[] | "::warning::\(.gem.name) \(.gem.version): \(.advisory.title)"' bundler-audit-results.json
+          fi
+
+      - name: Upload Bundler Audit results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bundler-audit-results
+          path: bundler-audit-results.json
+          retention-days: 30
+
+  # Job 5: Secret Scanning with Gitleaks
+  gitleaks:
+    name: Gitleaks Secret Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: false
+
+      - name: Upload Gitleaks results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-results
+          path: gitleaks-report.json
+          retention-days: 30
+
+  # Job 6: Security Summary
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [semgrep, brakeman, trivy-sca, bundler-audit, gitleaks]
+    if: always()
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: security-results
+
+      - name: Generate summary
+        run: |
+          echo "# Ruby Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Scan Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Scanner | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Semgrep | ${{ needs.semgrep.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Brakeman | ${{ needs.brakeman.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trivy | ${{ needs.trivy-sca.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Bundler Audit | ${{ needs.bundler-audit.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Gitleaks | ${{ needs.gitleaks.result }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Create combined archive
+        run: |
+          tar -czf security-scan-results.tar.gz security-results/
+
+      - name: Upload combined results
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-complete
+          path: security-scan-results.tar.gz
+          retention-days: 90

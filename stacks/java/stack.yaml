@@ -1,0 +1,33 @@
+name: java
+displayName: Java
+category: compiled
+packageManagers: [maven, gradle]
+buildTools: [javac, maven, gradle]
+frameworks: [spring-boot, quarkus, micronaut, jakarta-ee]
+scanners:
+  sast:
+    - name: semgrep
+      rulesets: [p/java]
+      config: configs/.semgrep.yml
+    - name: spotbugs
+      config: configs/spotbugs-security.xml
+  sca:
+    - name: trivy
+      scanType: fs
+      config: configs/trivy.yaml
+    - name: dependency-check
+      config: configs/dependency-check.xml
+  secrets:
+    - name: gitleaks
+      config: shared
+  dast:
+    - name: zap
+      applicableTo: [spring-boot, quarkus, micronaut, jakarta-ee]
+  container:
+    - name: trivy
+      scanType: image
+ciTemplates:
+  concourse: pipelines/concourse/pipeline.yml
+  githubActions: pipelines/github-actions/security.yml
+skill: skills/secure-java.md
+compliance: [owasp-top-10, cwe-top-25]

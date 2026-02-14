@@ -1,0 +1,25 @@
+name: swift
+displayName: Swift
+category: compiled
+packageManagers: [swift-package-manager]
+buildTools: [swiftc, xcodebuild]
+frameworks: [vapor, swiftui, uikit, combine]
+scanners:
+  sast:
+    - name: semgrep
+      rulesets: [p/swift]
+      config: configs/.semgrep.yml
+  sca:
+    - name: trivy
+      scanType: fs
+      config: configs/trivy.yaml
+  secrets:
+    - name: gitleaks
+      config: shared
+  dast: []
+  container: []
+ciTemplates:
+  concourse: pipelines/concourse/pipeline.yml
+  githubActions: pipelines/github-actions/security.yml
+skill: skills/secure-swift.md
+compliance: [owasp-top-10, cwe-top-25]

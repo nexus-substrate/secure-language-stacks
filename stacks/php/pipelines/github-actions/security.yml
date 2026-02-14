@@ -1,0 +1,258 @@
+name: PHP Security Scanning
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  semgrep:
+    name: SAST - Semgrep
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: |
+            stacks/php/configs/.semgrep.yml
+            p/php
+            p/security-audit
+            p/owasp-top-ten
+          generateSarif: true
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  phpstan:
+    name: SAST - PHPStan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: |
+          composer install --no-dev --optimize-autoloader --prefer-dist
+          composer require --dev phpstan/phpstan --with-all-dependencies
+
+      - name: Run PHPStan
+        run: |
+          ./vendor/bin/phpstan analyse \
+            --configuration=stacks/php/configs/phpstan.neon \
+            --error-format=github \
+            --no-progress
+
+      - name: Generate JSON report
+        if: always()
+        run: |
+          ./vendor/bin/phpstan analyse \
+            --configuration=stacks/php/configs/phpstan.neon \
+            --error-format=json \
+            --no-progress \
+            > phpstan-results.json || true
+
+      - name: Upload PHPStan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phpstan-results
+          path: phpstan-results.json
+
+  trivy-sca:
+    name: SCA - Trivy Filesystem
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-sca.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          scanners: 'vuln,misconfig,secret'
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-sca.sarif
+          category: trivy-sca
+
+      - name: Generate JSON report
+        if: always()
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'json'
+          output: 'trivy-sca.json'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: Upload Trivy results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-sca-results
+          path: trivy-sca.json
+
+  composer-audit:
+    name: SCA - Composer Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+          tools: composer:v2
+
+      - name: Run Composer audit
+        run: |
+          composer audit --format=json --no-dev > composer-audit.json || true
+
+      - name: Check audit results
+        run: |
+          advisories=$(jq '.advisories | length' composer-audit.json)
+          if [ "$advisories" -gt 0 ]; then
+            echo "::error::Found $advisories security advisories"
+            jq '.advisories' composer-audit.json
+            exit 1
+          fi
+
+      - name: Upload Composer audit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: composer-audit-results
+          path: composer-audit.json
+
+  gitleaks:
+    name: Secrets - Gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  trivy-container:
+    name: Container - Trivy Image Scan
+    runs-on: ubuntu-latest
+    if: hashFiles('Dockerfile') != ''
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t php-app:${{ github.sha }} .
+
+      - name: Run Trivy container scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'php-app:${{ github.sha }}'
+          format: 'sarif'
+          output: 'trivy-container.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-container.sarif
+          category: trivy-container
+
+  aggregate-results:
+    name: Aggregate Security Results
+    runs-on: ubuntu-latest
+    needs: [semgrep, phpstan, trivy-sca, composer-audit, gitleaks]
+    if: always()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Generate security summary
+        run: |
+          echo "# PHP Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Semgrep
+          if [ -f semgrep.sarif ]; then
+            semgrep_count=$(jq '.runs[0].results | length' semgrep.sarif 2>/dev/null || echo "0")
+            echo "- **Semgrep SAST**: $semgrep_count findings" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # PHPStan
+          if [ -f phpstan-results/phpstan-results.json ]; then
+            phpstan_errors=$(jq '.totals.errors + .totals.file_errors' phpstan-results/phpstan-results.json 2>/dev/null || echo "0")
+            echo "- **PHPStan**: $phpstan_errors errors" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Trivy SCA
+          if [ -f trivy-sca-results/trivy-sca.json ]; then
+            trivy_vulns=$(jq '[.Results[]?.Vulnerabilities // [] | length] | add' trivy-sca-results/trivy-sca.json 2>/dev/null || echo "0")
+            echo "- **Trivy SCA**: $trivy_vulns vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Composer Audit
+          if [ -f composer-audit-results/composer-audit.json ]; then
+            composer_advisories=$(jq '.advisories | length' composer-audit-results/composer-audit.json 2>/dev/null || echo "0")
+            echo "- **Composer Audit**: $composer_advisories advisories" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Detailed results available in job artifacts." >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let comment = '## PHP Security Scan Results\n\n';
+
+            // Read artifacts and build comment
+            // (simplified - full implementation would parse all result files)
+
+            comment += 'All security scans completed. Check the workflow run for details.';
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });

@@ -1,0 +1,182 @@
+rules:
+  # SQL Injection
+  - id: ruby-sql-injection
+    pattern-either:
+      - pattern: |
+          $MODEL.where("... #{$VAR} ...")
+      - pattern: |
+          $MODEL.find_by_sql("... #{$VAR} ...")
+      - pattern: |
+          ActiveRecord::Base.connection.execute("... #{$VAR} ...")
+      - pattern: |
+          $DB.exec("... #{$VAR} ...")
+    message: Potential SQL injection via string interpolation. Use parameterized queries.
+    severity: ERROR
+    languages: [ruby]
+    metadata:
+      cwe: "CWE-89"
+      owasp: "A03:2021 - Injection"
+
+  # Command Injection
+  - id: ruby-command-injection
+    pattern-either:
+      - pattern: system("... #{$VAR} ...")
+      - pattern: exec("... #{$VAR} ...")
+      - pattern: |
+          `... #{$VAR} ...`
+      - pattern: %x{... #{$VAR} ...}
+      - pattern: Kernel.system("... #{$VAR} ...")
+      - pattern: IO.popen("... #{$VAR} ...")
+      - pattern: Open3.capture2("... #{$VAR} ...")
+      - pattern: Open3.capture3("... #{$VAR} ...")
+    message: Potential command injection via string interpolation. Use array syntax or shellwords.
+    severity: ERROR
+    languages: [ruby]
+    metadata:
+      cwe: "CWE-78"
+      owasp: "A03:2021 - Injection"
+
+  # XSS in ERB templates
+  - id: ruby-erb-xss
+    pattern-either:
+      - pattern: <%= $VAR.html_safe %>
+      - pattern: <%= raw($VAR) %>
+      - pattern: $VAR.html_safe
+    message: Potential XSS via html_safe or raw. Only use on trusted sanitized content.
+    severity: WARNING
+    languages: [ruby]
+    metadata:
+      cwe: "CWE-79"
+      owasp: "A03:2021 - Injection"
+
+  # CSRF Protection Bypass
+  - id: ruby-rails-csrf-bypass
+    pattern-either:
+      - pattern: protect_from_forgery with: :null_session
+      - pattern: skip_before_action :verify_authenticity_token
+      - pattern: protect_from_forgery except: [...]
+    message: CSRF protection disabled or weakened. Only bypass for API endpoints with alternative auth.
+    severity: WARNING
+    languages: [ruby]
+    metadata:
+      cwe: "CWE-352"
+      owasp: "A01:2021 - Broken Access Control"
+
+  # Unsafe Deserialization - Marshal
+  - id: ruby-unsafe-marshal-load
+    pattern-either:
+      - pattern: Marshal.load($VAR)
+      - pattern: Marshal.restore($VAR)
+    message: Unsafe deserialization with Marshal.load. Use JSON or MessagePack for untrusted data.
+    severity: ERROR
+    languages: [ruby]
+    metadata:
+      cwe: "CWE-502"
+      owasp: "A08:2021 - Software and Data Integrity Failures"
+
+  # Unsafe Deserialization - YAML
+  - id: ruby-unsafe-yaml-load
+    pattern-either:
+      - pattern: YAML.load($VAR)
+      - pattern: YAML.load_file($VAR)
+    message: Unsafe deserialization with YAML.load. Use YAML.safe_load with permitted_classes.
+    severity: ERROR
+    languages: [ruby]
+    metadata:
+      cwe: "CWE-502"
+      owasp: "A08:2021 - Software and Data Integrity Failures"
+
+  # Mass Assignment Vulnerability
+  - id: ruby-rails-mass-assignment
+    pattern-either:
+      - pattern: $MODEL.new(params[:$KEY])
+      - pattern: $MODEL.create(params[:$KEY])
+      - pattern: $MODEL.update(params[:$KEY])
+      - pattern: $MODEL.update_attributes(params[:$KEY])
+    message: Potential mass assignment vulnerability. Use strong parameters (permit/require).
+    severity: WARNING
+    languages: [ruby]
+    metadata:
+      cwe: "CWE-915"
+      owasp: "A04:2021 - Insecure Design"
+
+  # Open Redirect
+  - id: ruby-rails-open-redirect
+    pattern-either:
+      - pattern: redirect_to params[:$VAR]
+      - pattern: redirect_to request.params[:$VAR]
+      - pattern: redirect_to $VAR if $VAR.start_with?("http")
+    message: Potential open redirect vulnerability. Validate URLs against allowlist.
+    severity: WARNING
+    languages: [ruby]
+    metadata:
+      cwe: "CWE-601"
+      owasp: "A01:2021 - Broken Access Control"
+
+  # Path Traversal
+  - id: ruby-path-traversal
+    pattern-either:
+      - pattern: File.read(params[:$VAR])
+      - pattern: File.open(params[:$VAR])
+      - pattern: FileUtils.cp(params[:$VAR], ...)
+      - pattern: IO.read(params[:$VAR])
+    message: Potential path traversal. Validate and sanitize file paths.
+    severity: ERROR
+    languages: [ruby]
+    metadata:
+      cwe: "CWE-22"
+      owasp: "A01:2021 - Broken Access Control"
+
+  # Weak Cryptography
+  - id: ruby-weak-hash
+    pattern-either:
+      - pattern: Digest::MD5.hexdigest($VAR)
+      - pattern: Digest::SHA1.hexdigest($VAR)
+      - pattern: OpenSSL::Digest::MD5.digest($VAR)
+      - pattern: OpenSSL::Digest::SHA1.digest($VAR)
+    message: Weak cryptographic hash function. Use SHA-256 or stronger.
+    severity: WARNING
+    languages: [ruby]
+    metadata:
+      cwe: "CWE-327"
+      owasp: "A02:2021 - Cryptographic Failures"
+
+  # Hardcoded Secrets
+  - id: ruby-hardcoded-secret
+    pattern-either:
+      - pattern: password = "..."
+      - pattern: api_key = "..."
+      - pattern: secret_key = "..."
+      - pattern: token = "..."
+    message: Hardcoded secret detected. Use environment variables or secret management.
+    severity: ERROR
+    languages: [ruby]
+    metadata:
+      cwe: "CWE-798"
+      owasp: "A07:2021 - Identification and Authentication Failures"
+
+  # Insecure Random
+  - id: ruby-insecure-random
+    pattern-either:
+      - pattern: rand(...)
+      - pattern: Random.rand(...)
+      - pattern: Kernel.rand(...)
+    message: Insecure random number generator. Use SecureRandom for security-sensitive operations.
+    severity: WARNING
+    languages: [ruby]
+    metadata:
+      cwe: "CWE-330"
+      owasp: "A02:2021 - Cryptographic Failures"
+
+  # Regex DoS
+  - id: ruby-regex-dos
+    pattern-either:
+      - pattern: /(...+)+/.match($VAR)
+      - pattern: /(...*)*/.match($VAR)
+      - pattern: /(..+)*/.match($VAR)
+    message: Potential ReDoS (Regular Expression Denial of Service). Simplify regex or use timeout.
+    severity: WARNING
+    languages: [ruby]
+    metadata:
+      cwe: "CWE-1333"
+      owasp: "A06:2021 - Vulnerable and Outdated Components"

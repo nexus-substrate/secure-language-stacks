@@ -1,0 +1,247 @@
+resource_types:
+  - name: semgrep
+    type: docker-image
+    source:
+      repository: returntocorp/semgrep
+
+resources:
+  - name: source-code
+    type: git
+    source:
+      uri: ((git.uri))
+      branch: ((git.branch))
+      private_key: ((git.private_key))
+
+  - name: semgrep-image
+    type: docker-image
+    source:
+      repository: returntocorp/semgrep
+      tag: latest
+
+  - name: trivy-image
+    type: docker-image
+    source:
+      repository: aquasec/trivy
+      tag: latest
+
+  - name: gitleaks-image
+    type: docker-image
+    source:
+      repository: zricethezav/gitleaks
+      tag: latest
+
+  - name: golang-image
+    type: docker-image
+    source:
+      repository: golang
+      tag: 1.21
+
+jobs:
+  - name: security-scan
+    plan:
+      - get: source-code
+        trigger: true
+      - in_parallel:
+          - task: semgrep-sast
+            image: semgrep-image
+            config:
+              platform: linux
+              inputs:
+                - name: source-code
+              outputs:
+                - name: semgrep-results
+              run:
+                path: sh
+                args:
+                  - -c
+                  - |
+                    cd source-code
+                    semgrep --config stacks/go/configs/.semgrep.yml \
+                      --config p/golang \
+                      --json \
+                      --output ../semgrep-results/report.json \
+                      .
+                    if [ -s ../semgrep-results/report.json ]; then
+                      jq '.results[] | select(.extra.severity == "ERROR")' ../semgrep-results/report.json > /tmp/errors.json
+                      if [ -s /tmp/errors.json ]; then
+                        echo "CRITICAL: Semgrep found errors"
+                        cat /tmp/errors.json
+                        exit 1
+                      fi
+                    fi
+              on_failure:
+                put: notify
+                params:
+                  text: "Semgrep SAST scan failed"
+
+          - task: gosec-sast
+            image: golang-image
+            config:
+              platform: linux
+              inputs:
+                - name: source-code
+              outputs:
+                - name: gosec-results
+              run:
+                path: sh
+                args:
+                  - -c
+                  - |
+                    cd source-code
+                    go install github.com/securego/gosec/v2/cmd/gosec@latest
+                    gosec -conf stacks/go/configs/gosec.json \
+                      -fmt json \
+                      -out ../gosec-results/report.json \
+                      ./...
+                    if [ -s ../gosec-results/report.json ]; then
+                      HIGH_COUNT=$(jq '[.Issues[] | select(.severity == "HIGH")] | length' ../gosec-results/report.json)
+                      if [ "$HIGH_COUNT" -gt 0 ]; then
+                        echo "CRITICAL: Gosec found $HIGH_COUNT high-severity issues"
+                        exit 1
+                      fi
+                    fi
+              on_failure:
+                put: notify
+                params:
+                  text: "Gosec SAST scan failed"
+
+          - task: trivy-sca
+            image: trivy-image
+            config:
+              platform: linux
+              inputs:
+                - name: source-code
+              outputs:
+                - name: trivy-results
+              run:
+                path: sh
+                args:
+                  - -c
+                  - |
+                    cd source-code
+                    trivy fs --config stacks/go/configs/trivy.yaml \
+                      --format json \
+                      --output ../trivy-results/report.json \
+                      .
+                    if [ -s ../trivy-results/report.json ]; then
+                      CRITICAL_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' ../trivy-results/report.json)
+                      if [ "$CRITICAL_COUNT" -gt 0 ]; then
+                        echo "CRITICAL: Trivy found $CRITICAL_COUNT critical vulnerabilities"
+                        exit 1
+                      fi
+                    fi
+              on_failure:
+                put: notify
+                params:
+                  text: "Trivy SCA scan failed"
+
+          - task: govulncheck
+            image: golang-image
+            config:
+              platform: linux
+              inputs:
+                - name: source-code
+              outputs:
+                - name: govulncheck-results
+              run:
+                path: sh
+                args:
+                  - -c
+                  - |
+                    cd source-code
+                    go install golang.org/x/vuln/cmd/govulncheck@latest
+                    govulncheck -json ./... > ../govulncheck-results/report.json || true
+                    if [ -s ../govulncheck-results/report.json ]; then
+                      VULN_COUNT=$(jq '[.Vulns[]?] | length' ../govulncheck-results/report.json)
+                      if [ "$VULN_COUNT" -gt 0 ]; then
+                        echo "WARNING: govulncheck found $VULN_COUNT vulnerabilities"
+                      fi
+                    fi
+              on_failure:
+                put: notify
+                params:
+                  text: "govulncheck scan failed"
+
+          - task: gitleaks-secrets
+            image: gitleaks-image
+            config:
+              platform: linux
+              inputs:
+                - name: source-code
+              outputs:
+                - name: gitleaks-results
+              run:
+                path: sh
+                args:
+                  - -c
+                  - |
+                    cd source-code
+                    gitleaks detect \
+                      --source . \
+                      --report-format json \
+                      --report-path ../gitleaks-results/report.json \
+                      --no-git \
+                      --exit-code 1 || true
+                    if [ -s ../gitleaks-results/report.json ]; then
+                      LEAK_COUNT=$(jq 'length' ../gitleaks-results/report.json)
+                      if [ "$LEAK_COUNT" -gt 0 ]; then
+                        echo "CRITICAL: Gitleaks found $LEAK_COUNT secrets"
+                        exit 1
+                      fi
+                    fi
+              on_failure:
+                put: notify
+                params:
+                  text: "Gitleaks secrets scan failed"
+
+      - task: aggregate-results
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: alpine
+              tag: latest
+          inputs:
+            - name: semgrep-results
+            - name: gosec-results
+            - name: trivy-results
+            - name: govulncheck-results
+            - name: gitleaks-results
+          outputs:
+            - name: security-report
+          run:
+            path: sh
+            args:
+              - -c
+              - |
+                apk add --no-cache jq
+                echo '{"timestamp":"'$(date -Iseconds)'","scans":{}}' > security-report/summary.json
+
+                if [ -s semgrep-results/report.json ]; then
+                  jq '.scans.semgrep = input' security-report/summary.json semgrep-results/report.json > /tmp/summary.json
+                  mv /tmp/summary.json security-report/summary.json
+                fi
+
+                if [ -s gosec-results/report.json ]; then
+                  jq '.scans.gosec = input' security-report/summary.json gosec-results/report.json > /tmp/summary.json
+                  mv /tmp/summary.json security-report/summary.json
+                fi
+
+                if [ -s trivy-results/report.json ]; then
+                  jq '.scans.trivy = input' security-report/summary.json trivy-results/report.json > /tmp/summary.json
+                  mv /tmp/summary.json security-report/summary.json
+                fi
+
+                if [ -s govulncheck-results/report.json ]; then
+                  jq '.scans.govulncheck = input' security-report/summary.json govulncheck-results/report.json > /tmp/summary.json
+                  mv /tmp/summary.json security-report/summary.json
+                fi
+
+                if [ -s gitleaks-results/report.json ]; then
+                  jq '.scans.gitleaks = input' security-report/summary.json gitleaks-results/report.json > /tmp/summary.json
+                  mv /tmp/summary.json security-report/summary.json
+                fi
+
+                echo "Security scan complete"
+                cat security-report/summary.json

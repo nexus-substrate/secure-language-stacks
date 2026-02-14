@@ -1,0 +1,82 @@
+# Trivy Configuration for Python Filesystem Scanning
+# https://aquasecurity.github.io/trivy/latest/docs/configuration/
+
+severity:
+  - CRITICAL
+  - HIGH
+  - MEDIUM
+
+scanners:
+  - vuln
+  - secret
+  - misconfig
+
+vulnerability:
+  type:
+    - os
+    - library
+
+# Python-specific vulnerability databases
+vuln-type:
+  - library
+
+# Scan Python dependency files
+file-patterns:
+  - requirements.txt
+  - requirements/*.txt
+  - Pipfile
+  - Pipfile.lock
+  - poetry.lock
+  - pyproject.toml
+  - setup.py
+  - setup.cfg
+
+# Skip directories
+skip-dirs:
+  - .venv
+  - venv
+  - __pycache__
+  - .tox
+  - build
+  - dist
+  - .git
+
+# Secret scanning configuration
+secret:
+  config: ../../shared/secret-patterns.yaml
+
+# Ignore unfixed vulnerabilities (optional)
+ignore-unfixed: false
+
+# Exit code configuration
+exit-code: 1
+
+# Output format
+format: json
+
+# Timeout for scanning
+timeout: 5m
+
+# Offline mode (use local DB)
+offline-scan: false
+
+# Cache directory
+cache-dir: .trivycache
+
+# Python-specific checks
+python:
+  # Check for known malicious packages
+  check-malicious: true
+
+  # Verify package integrity
+  verify-checksum: true
+
+  # Scan for outdated dependencies
+  check-outdated: true
+
+# Misconfiguration scanning
+misconfig:
+  scanners:
+    - dockerfile
+    - kubernetes
+    - terraform

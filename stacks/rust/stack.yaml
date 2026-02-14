@@ -1,0 +1,28 @@
+name: rust
+displayName: Rust
+category: compiled
+packageManagers: [cargo]
+buildTools: [cargo, rustc]
+frameworks: [actix-web, axum, rocket, warp, tide]
+scanners:
+  sast:
+    - name: semgrep
+      rulesets: [p/rust]
+      config: configs/.semgrep.yml
+  sca:
+    - name: trivy
+      scanType: fs
+      config: configs/trivy.yaml
+    - name: cargo-audit
+  secrets:
+    - name: gitleaks
+      config: shared
+  dast: []
+  container:
+    - name: trivy
+      scanType: image
+ciTemplates:
+  concourse: pipelines/concourse/pipeline.yml
+  githubActions: pipelines/github-actions/security.yml
+skill: skills/secure-rust.md
+compliance: [owasp-top-10, cwe-top-25]

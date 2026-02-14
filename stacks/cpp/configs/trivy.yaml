@@ -1,0 +1,68 @@
+# Trivy configuration for C++ projects
+severity: CRITICAL,HIGH,MEDIUM
+vuln-type: os,library
+scanners: vuln,misconfig,secret
+
+# Security checks
+security-checks: vuln,secret,config
+
+# Skip specific directories
+skip-dirs:
+  - build
+  - .git
+  - third_party
+  - vendor
+  - test
+  - tests
+  - node_modules
+
+# Skip specific files
+skip-files:
+  - "*.md"
+  - "*.txt"
+  - LICENSE
+
+# Vulnerability settings
+ignore-unfixed: false
+exit-code: 1
+
+# Secret scanning
+secret:
+  config: ""
+
+# Misconfiguration scanning
+misconfig:
+  # Include Dockerfile, CMakeLists.txt, conanfile
+  include-non-failures: false
+
+# Output format
+format: table
+output: ""
+
+# Timeout
+timeout: 5m0s
+
+# Cache settings
+cache:
+  clear: false
+  ttl: 24h
+
+# Offline mode
+offline-scan: false
+
+# License scanning (optional for C++ dependencies)
+license:
+  full: false
+
+# File patterns for C++ projects
+file-patterns:
+  - conanfile.txt
+  - conanfile.py
+  - vcpkg.json
+  - CMakeLists.txt
+  - Dockerfile
+
+# Compliance
+compliance:
+  - owasp-top-10
+  - cwe-top-25

@@ -1,0 +1,24 @@
+name: shell
+displayName: Shell
+category: interpreted
+packageManagers: []
+buildTools: []
+frameworks: [bash, zsh, sh]
+scanners:
+  sast:
+    - name: semgrep
+      rulesets: [p/bash]
+      config: configs/.semgrep.yml
+    - name: shellcheck
+      config: configs/.shellcheckrc
+  sca: []
+  secrets:
+    - name: gitleaks
+      config: shared
+  dast: []
+  container: []
+ciTemplates:
+  concourse: pipelines/concourse/pipeline.yml
+  githubActions: pipelines/github-actions/security.yml
+skill: skills/secure-shell.md
+compliance: [owasp-top-10, cwe-top-25]
