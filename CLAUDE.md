@@ -1,7 +1,7 @@
 # Secure Language Stacks — Claude Code Instructions
 
 **Project:** Security toolchain reference for top 15 GitHub languages
-**Repository:** github.com/williamzujkowski/secure-language-stacks
+**Repository:** github.com/nexus-substrate/secure-language-stacks
 
 ## Quick Reference
 

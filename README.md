@@ -1,8 +1,8 @@
 # Secure Language Stacks
 
-Security toolchain reference for the top 15 GitHub languages. Each stack provides scanner configs, reusable CI templates (Concourse + GitHub Actions), and [nexus-agents](https://github.com/williamzujkowski/nexus-agents) skills.
+Security toolchain reference for the top 15 GitHub languages. Each stack provides scanner configs, reusable CI templates (Concourse + GitHub Actions), and [nexus-agents](https://github.com/nexus-substrate/nexus-agents) skills.
 
-[![Validate Stacks](https://github.com/williamzujkowski/secure-language-stacks/actions/workflows/validate.yml/badge.svg)](https://github.com/williamzujkowski/secure-language-stacks/actions/workflows/validate.yml)
+[![Validate Stacks](https://github.com/nexus-substrate/secure-language-stacks/actions/workflows/validate.yml/badge.svg)](https://github.com/nexus-substrate/secure-language-stacks/actions/workflows/validate.yml)
 
 ## Languages
 
