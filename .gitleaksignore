@@ -1,0 +1,4 @@
+# gitleaks allowlist — confirmed false positives (intentional example secrets in secure-coding teaching docs)
+stacks/shell/skills/secure-shell.md:generic-api-key:127
+stacks/kotlin/skills/secure-kotlin.md:generic-api-key:446
+stacks/yaml/skills/secure-yaml.md:generic-api-key:264
