@@ -1,16 +1,16 @@
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
-import { glob } from 'glob';
-import yaml from 'js-yaml';
-import { StackSchema } from '../schemas/stack-schema.js';
+import { readFileSync, existsSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { glob } from "glob";
+import yaml from "js-yaml";
+import { StackSchema } from "../schemas/stack-schema.js";
 
-const ROOT = resolve(import.meta.dirname, '..');
+const ROOT = resolve(import.meta.dirname, "..");
 
 async function main(): Promise<void> {
-  const stackFiles = await glob('stacks/*/stack.yaml', { cwd: ROOT });
+  const stackFiles = await glob("stacks/*/stack.yaml", { cwd: ROOT });
 
   if (stackFiles.length === 0) {
-    console.error('No stack.yaml files found');
+    console.error("No stack.yaml files found");
     process.exit(1);
   }
 
@@ -18,14 +18,14 @@ async function main(): Promise<void> {
 
   for (const relPath of stackFiles.sort()) {
     const absPath = join(ROOT, relPath);
-    const raw = readFileSync(absPath, 'utf-8');
+    const raw = readFileSync(absPath, "utf-8");
     const data: unknown = yaml.load(raw);
 
     const result = StackSchema.safeParse(data);
     if (!result.success) {
       console.error(`FAIL ${relPath}:`);
       for (const issue of result.error.issues) {
-        console.error(`  - ${issue.path.join('.')}: ${issue.message}`);
+        console.error(`  - ${issue.path.join(".")}: ${issue.message}`);
       }
       errors++;
       continue;
@@ -34,7 +34,7 @@ async function main(): Promise<void> {
     const stack = result.data;
 
     // Validate referenced files exist
-    const stackDir = join(ROOT, 'stacks', stack.name);
+    const stackDir = join(ROOT, "stacks", stack.name);
     const refs = [
       stack.ciTemplates.concourse,
       stack.ciTemplates.githubActions,
@@ -51,11 +51,11 @@ async function main(): Promise<void> {
     // Validate scanner configs exist (skip "shared" references)
     for (const category of Object.values(stack.scanners)) {
       for (const scanner of category) {
-        if (scanner.config && scanner.config !== 'shared') {
+        if (scanner.config && scanner.config !== "shared") {
           const configPath = join(stackDir, scanner.config);
           if (!existsSync(configPath)) {
             console.error(
-              `FAIL ${relPath}: scanner config missing: ${scanner.config}`
+              `FAIL ${relPath}: scanner config missing: ${scanner.config}`,
             );
             errors++;
           }

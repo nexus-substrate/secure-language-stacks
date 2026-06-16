@@ -1,0 +1,8 @@
+# Generated / tool-owned files
+pnpm-lock.yaml
+
+# Scanner configs and CI pipeline templates are owned by their respective
+# tools (semgrep, trivy, tfsec, Concourse) and use tool-specific YAML that
+# Prettier cannot parse or should not reformat. They are validated by
+# `pnpm validate` instead.
+stacks/
