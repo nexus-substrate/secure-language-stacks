@@ -6,23 +6,23 @@ Security toolchain reference for the top 15 GitHub languages. Each stack provide
 
 ## Languages
 
-| Language | Category | SAST | SCA | Secrets | DAST | Container |
-|----------|----------|------|-----|---------|------|-----------|
-| [TypeScript](stacks/typescript/) | compiled | semgrep, eslint-security | trivy, npm-audit | gitleaks | zap | trivy |
-| [JavaScript](stacks/javascript/) | interpreted | semgrep, eslint-security | trivy, npm-audit | gitleaks | zap | trivy |
-| [Python](stacks/python/) | interpreted | semgrep, bandit | trivy, pip-audit | gitleaks | zap | trivy |
-| [Java](stacks/java/) | compiled | semgrep, spotbugs | trivy, dependency-check | gitleaks | zap | trivy |
-| [Go](stacks/go/) | compiled | semgrep, gosec | trivy, govulncheck | gitleaks | -- | trivy |
-| [Rust](stacks/rust/) | compiled | semgrep | trivy, cargo-audit | gitleaks | -- | trivy |
-| [C++](stacks/cpp/) | compiled | semgrep, cppcheck | trivy | gitleaks | -- | trivy |
-| [Kotlin](stacks/kotlin/) | compiled | semgrep, detekt | trivy, dependency-check | gitleaks | zap | trivy |
-| [Swift](stacks/swift/) | compiled | semgrep | trivy | gitleaks | -- | -- |
-| [SQL](stacks/sql/) | infrastructure | semgrep, sqlfluff | -- | gitleaks | -- | -- |
-| [Ruby](stacks/ruby/) | interpreted | semgrep, brakeman | trivy, bundler-audit | gitleaks | zap | trivy |
-| [PHP](stacks/php/) | interpreted | semgrep, phpstan | trivy, composer-audit | gitleaks | zap | trivy |
-| [Shell](stacks/shell/) | interpreted | semgrep, shellcheck | -- | gitleaks | -- | -- |
-| [HCL](stacks/hcl/) | infrastructure | semgrep, tfsec | trivy | gitleaks | -- | -- |
-| [YAML](stacks/yaml/) | infrastructure | semgrep | -- | gitleaks | -- | -- |
+| Language                         | Category       | SAST                     | SCA                     | Secrets  | DAST | Container |
+| -------------------------------- | -------------- | ------------------------ | ----------------------- | -------- | ---- | --------- |
+| [TypeScript](stacks/typescript/) | compiled       | semgrep, eslint-security | trivy, npm-audit        | gitleaks | zap  | trivy     |
+| [JavaScript](stacks/javascript/) | interpreted    | semgrep, eslint-security | trivy, npm-audit        | gitleaks | zap  | trivy     |
+| [Python](stacks/python/)         | interpreted    | semgrep, bandit          | trivy, pip-audit        | gitleaks | zap  | trivy     |
+| [Java](stacks/java/)             | compiled       | semgrep, spotbugs        | trivy, dependency-check | gitleaks | zap  | trivy     |
+| [Go](stacks/go/)                 | compiled       | semgrep, gosec           | trivy, govulncheck      | gitleaks | --   | trivy     |
+| [Rust](stacks/rust/)             | compiled       | semgrep                  | trivy, cargo-audit      | gitleaks | --   | trivy     |
+| [C++](stacks/cpp/)               | compiled       | semgrep, cppcheck        | trivy                   | gitleaks | --   | trivy     |
+| [Kotlin](stacks/kotlin/)         | compiled       | semgrep, detekt          | trivy, dependency-check | gitleaks | zap  | trivy     |
+| [Swift](stacks/swift/)           | compiled       | semgrep                  | trivy                   | gitleaks | --   | --        |
+| [SQL](stacks/sql/)               | infrastructure | semgrep, sqlfluff        | --                      | gitleaks | --   | --        |
+| [Ruby](stacks/ruby/)             | interpreted    | semgrep, brakeman        | trivy, bundler-audit    | gitleaks | zap  | trivy     |
+| [PHP](stacks/php/)               | interpreted    | semgrep, phpstan         | trivy, composer-audit   | gitleaks | zap  | trivy     |
+| [Shell](stacks/shell/)           | interpreted    | semgrep, shellcheck      | --                      | gitleaks | --   | --        |
+| [HCL](stacks/hcl/)               | infrastructure | semgrep, tfsec           | trivy                   | gitleaks | --   | --        |
+| [YAML](stacks/yaml/)             | infrastructure | semgrep                  | --                      | gitleaks | --   | --        |
 
 ## Usage
 

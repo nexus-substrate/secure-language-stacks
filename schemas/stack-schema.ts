@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 const ScannerEntrySchema = z.object({
   name: z.string().min(1),
@@ -11,7 +11,7 @@ const ScannerEntrySchema = z.object({
 export const StackSchema = z.object({
   name: z.string().min(1),
   displayName: z.string().min(1),
-  category: z.enum(['compiled', 'interpreted', 'infrastructure']),
+  category: z.enum(["compiled", "interpreted", "infrastructure"]),
   packageManagers: z.array(z.string()).default([]),
   buildTools: z.array(z.string()).default([]),
   frameworks: z.array(z.string()).default([]),
